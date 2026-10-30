@@ -20,6 +20,13 @@ let user = null, profile = null, guest = false, screen = 'title';
 let room = null, roomView = {}, lastStart = null, inMatch = false, matchRoster = null, gone = new Set();
 let authMode = 'in', lbField = 'wins', wakeLock = null;
 let authReadyResolve; const authReady = new Promise(r => authReadyResolve = r);
+let redirectDone = Promise.resolve(null);
+// Back from a full-page Google sign-in? (flag set by firebase.js just before redirecting; same key here
+// because firebase.js may not have loaded yet)
+const backFromGoogle = (() => {
+  try { const t = +sessionStorage.getItem('pr-google-redirect'); sessionStorage.removeItem('pr-google-redirect'); return t > 0 && Date.now() - t < 10 * 60e3; }
+  catch (e) { return false; }
+})();
 let pendingJoin = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 
 let settings = {bots:3, obots:2, diff:'rider', win:5};
@@ -135,7 +142,7 @@ $('forgotBtn').addEventListener('click', async () => {
 $('guestBtn').addEventListener('click', () => { guest = true; show('home'); });
 
 function initAuth(){
-  FB.redirectResult().catch(err => authMsg(FB.authError(err)));
+  redirectDone = FB.redirectResult().catch(err => { authMsg(FB.authError(err)); return {error:err}; });
   FB.onAuth(async u => {
     user = u;
     if (u) {
@@ -421,6 +428,17 @@ async function loadBoard(field){
 qa('[data-lb]').forEach(b => b.addEventListener('click', () => loadBoard(b.dataset.lb)));
 
 /* ---------- Boot ---------- */
+// Returning from a Google redirect: skip the title, finish sign-in, then go straight to Home
+async function finishGoogleRedirect(){
+  show('auth');
+  authMsg('Finishing Google sign-in…', true);
+  if (!(await Promise.race([online, wait(8000).then(() => false)]))) return authMsg('Online services are unreachable right now.');
+  const res = await Promise.race([redirectDone, wait(12000).then(() => ({timeout:true}))]);
+  await Promise.race([authReady, wait(3000)]);
+  if (user) return route();
+  if (!res || !res.error) authMsg('Google sign-in did not finish in this browser. Try again, or use email and password.');
+}
+
 setAuthMode('in');
-show('title');
-boot();
+if (backFromGoogle) finishGoogleRedirect();
+else { show('title'); boot(); }

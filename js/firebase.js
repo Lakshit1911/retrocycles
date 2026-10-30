@@ -47,12 +47,17 @@ export async function signUp(name, email, pw){
   await set(ref(db, `users/${user.uid}/name`), n);   // wins any race with the auth listener's profile write
   return user;
 }
+// Set just before a full-page Google redirect, so the app knows to finish sign-in when it reloads
+export const REDIRECT_FLAG = 'pr-google-redirect';
 export async function signInGoogle(){
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({prompt:'select_account'});
   try { return await signInWithPopup(auth, provider); }
   catch (e) {
-    if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') return signInWithRedirect(auth, provider);
+    if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+      try { sessionStorage.setItem(REDIRECT_FLAG, String(Date.now())); } catch (_) {}
+      return signInWithRedirect(auth, provider);
+    }
     throw e;
   }
 }

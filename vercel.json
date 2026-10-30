@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/__/auth/:path*", "destination": "https://retrocycles-e9965.firebaseapp.com/__/auth/:path*" },
+    { "source": "/__/firebase/:path*", "destination": "https://retrocycles-e9965.firebaseapp.com/__/firebase/:path*" }
+  ]
+}

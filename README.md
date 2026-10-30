@@ -23,6 +23,11 @@ database.rules.json      Realtime Database security rules
 1. **Authentication → Sign-in method**: enable **Email/Password** and **Google**.
 2. **Authentication → Settings → Authorized domains**: add your Vercel domain(s), e.g. `<project>.vercel.app` (and any custom domain).
 3. **Realtime Database → Rules**: paste the contents of `database.rules.json` and publish.
+4. **Google sign-in on your domain** (Google Cloud Console → project `retrocycles-e9965` → APIs & Services → Credentials → OAuth 2.0 Client IDs → *Web client (auto created by Google Service)*):
+   - Authorized JavaScript origins: `https://<your-domain>`
+   - Authorized redirect URIs: `https://<your-domain>/__/auth/handler`
+
+   The deployed site serves Firebase's sign-in pages from its own domain (`vercel.json` proxies `/__/auth/*` to `firebaseapp.com`, and `js/config.js` sets `authDomain` to the current host). Browsers that partition third-party storage otherwise drop the Google sign-in result. Local development (`localhost`) keeps the default `firebaseapp.com` auth domain.
 
 ## How online play works
 
