@@ -14,6 +14,9 @@ js/visuals/config.js     VISUAL_CONFIG: every tunable number for the look
 js/visuals/riders.js     per-rider Phantom, eased turns, banking, disposal
 js/visuals/renderer.js   renderer, colour pipeline, reflections, lights, fog, bloom, quality levels
 js/visuals/arena.js      obsidian floor, cell grid, perimeter ripples, skyline, sky beams, dust, seam pulses
+js/visuals/trails.js     shader light-wall ribbons and floor glow strips
+js/visuals/effects.js    thruster heat, crash shards + flash, boost streaks, spawn scan line
+js/visuals/camera.js     chase / cockpit / overview camera, FOV with speed, bank tilt, shake
 js/vendor/three-r128/    pinned three.js r128 add-ons (EffectComposer, bloom, RoomEnvironment)
 js/ui.js                 screens, sign-in, host/join flow, leaderboard
 js/net.js                Realtime Database rooms (host / join / inputs / snapshots)

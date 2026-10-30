@@ -27,6 +27,15 @@ export const VISUAL_CONFIG = {
   wall: {
     height:0.5           // 0.9 m at vehicle scale
   },
+  trail: {
+    maxPoints:1024,      // fixed buffer size per rider (turn points per round)
+    bodyBottom:0.08, bodyTop:0.3,        // dim translucent body, brighter toward the top
+    band:0.14, bandIntensity:2.4,        // bright top band (fraction of height) and its strength
+    whiteCore:0.6,                       // white in the band's core
+    tipBoost:1.4, tipLength:1.6,         // extra brightness right behind the craft (cells)
+    glowIntensity:0.22, glowWidth:1.6,   // soft glow strip on the floor
+    collapse:0.6                         // seconds for a crashed wall to fold down and fade
+  },
   render: {
     exposure:1.0,          // ACES Filmic tone mapping exposure
     envBlur:0.04,          // RoomEnvironment PMREM sigma
@@ -35,7 +44,7 @@ export const VISUAL_CONFIG = {
   },
   arena: {
     // Obsidian floor; panel = cells per floor panel (seams and the brighter grid line)
-    floor:{color:'#06070a', seam:'#11141b', panel:8, metalness:0.55, roughness:0.38, env:0.3},
+    floor:{color:'#06070a', seam:'#11141b', panel:8, metalness:0.55, roughness:0.42, env:0.14},
     grid:{line:'#1d222c', major:'#2b3242', opacity:0.7},
     // Perimeter: matte dark metal, one thin emissive top line, light ripples when riders come near
     wall:{height:3.5, thickness:0.6, color:'#0b0d12', edge:'#c9d3e6', edgeIntensity:1.4,
@@ -66,10 +75,22 @@ export const VISUAL_CONFIG = {
   },
   autoQuality: {minFps:45, seconds:3, graceSeconds:4},
   camera: {
-    // chase: cells behind / above the craft, and how far ahead it looks
-    chase:{back:5.6, height:2.3, ahead:8, lookHeight:0.5, follow:7},
+    // chase: cells behind / above the craft, how far ahead it looks, follow stiffness, roll with bank
+    chase:{back:4.4, height:1.45, ahead:6.5, lookHeight:0.6, follow:6, bankTilt:0.28},
     cockpit:{height:1.0, ahead:25},
-    overhead:{height:72, back:30},
-    orbit:{radius:66, height:30}   // attract-mode flyover behind the menus
+    overview:{height:46, back:22},
+    orbit:{radius:66, height:30, speed:0.06},   // attract-mode flyover behind the menus
+    intro:{back:30, height:34},                 // where the camera swoops in from at round start
+    fov:{cruise:42, boost:58, menu:55, overview:55},
+    shake:{boost:0.05, crash:0.9, decay:2.2}
+  },
+  effects: {
+    heat:{max:900, size:0.12, life:0.6, rate:8, ratePerSpeed:1.0, back:2.5, rise:0.6, spread:0.6, brightness:0.9},
+    shards:{count:80, speed:9, up:7, spin:14, life:1.2, size:0.32, gravity:16},
+    flash:{life:0.35, size:6, light:14},
+    streaks:{count:48, radius:[2.2, 4.2], depth:24, speed:60, length:2.6, opacity:0.32},
+    scan:{duration:1.1},                         // spawn scan line rising through each craft
+    powerOn:{duration:0.4, speed:40},            // thruster flare at GO
+    slowMotion:{duration:0.3, scale:0.25}        // visual-only, your own crash
   }
 };

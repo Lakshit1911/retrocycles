@@ -9,9 +9,12 @@ import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, headingYa
 import { createPipeline, lin, defaultQuality } from './visuals/renderer.js';
 import { SFX } from './audio.js';
 import { createArena } from './visuals/arena.js';
+import { createTrails } from './visuals/trails.js';
+import { createEffects } from './visuals/effects.js';
+import { createCameraRig, CAMS } from './visuals/camera.js';
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
-const N = 128, H = N / 2, WALL_H = VC.wall.height, T = 0.16, BASE = 15;
+const N = 128, H = N / 2, BASE = 15, DEATH_WINDOW = 1.4;
 const SNAP_DT = 1 / 15, REWIND = 6, GRACE = .2, HIST = 8;
 const DIRS = [[1,0],[0,1],[-1,0],[0,-1]];
 export const RIDERS = ['YOU', 'KESTREL', 'JUNO', 'RIVET', 'ORCA', 'SABLE']
@@ -47,6 +50,13 @@ const renderer = pipe.renderer;
 
 // Floor, perimeter, skyline and ambient detail (js/visuals/arena.js)
 const arena = createArena(scene, N);
+// Light walls: one shader ribbon per rider (js/visuals/trails.js)
+const trails = createTrails(scene);
+// Heat, crash shards, boost streaks, spawn scan (js/visuals/effects.js) and the camera rig (js/visuals/camera.js)
+const fx = createEffects(scene, camera, reduceMotion);
+const rig = createCameraRig(camera, reduceMotion);
+renderer.localClippingEnabled = true;   // spawn scan clips each craft above a rising plane
+let slowT = 0;                           // visual-only slow motion after the local rider's own crash
 
 /* ---------- Grid occupancy ---------- */
 const grid = new Int8Array(N * N), stamp = new Uint32Array(N * N); let stampId = 1;
@@ -84,31 +94,17 @@ function raster(id, x0, z0, x1, z1){
 }
 
 /* ---------- Bikes ---------- */
-const UNIT = new THREE.BoxGeometry(1,1,1);
 const headingOf = d => headingYaw(DIRS[d][0], DIRS[d][1]);
 
 let bikes = [], player = null, scores = [], round = 0;
 let state = 'demo', cd = 0, overT = 0, spectT = 0, deadT = 0, demoT = 0, paused = false, msgT = 0;
-let camMode = 0, shake = 0, orbitT = 0, lastCd = 4;
+let camMode = 0, lastCd = 4;
 const keys = {boost:false};
-const camPos = new THREE.Vector3(0, 60, 90), camLook = new THREE.Vector3();
 const humansAlive = () => bikes.some(b => b.alive && !b.ai);
 
-function startSegAt(b, x, z){
-  const s = {x0:x, z0:z,
-    wall:new THREE.Mesh(UNIT, b.wallMat), cap:new THREE.Mesh(UNIT, b.capMat), fl:new THREE.Mesh(UNIT, b.floorMat)};
-  scene.add(s.wall, s.cap, s.fl); b.segs.push(s); sizeSeg(s, wx(x), wx(z)); return s;
-}
+// A rider's wall is a list of segment start cells; the ribbon in trails.js draws it
+function startSegAt(b, x, z){ const s = {x0:x, z0:z}; b.segs.push(s); return s; }
 function startSeg(b){ b.nt++; return startSegAt(b, b.cx, b.cz); }
-function sizeSeg(s, x1, z1){
-  const ax = wx(s.x0), az = wx(s.z0);
-  const lx = Math.abs(x1 - ax) + T, lz = Math.abs(z1 - az) + T, cx = (ax + x1) / 2, cz = (az + z1) / 2;
-  s.wall.scale.set(lx, WALL_H, lz); s.wall.position.set(cx, WALL_H / 2, cz);
-  s.cap.scale.set(lx + .03, .08, lz + .03); s.cap.position.set(cx, WALL_H, cz);
-  s.fl.scale.set(lx + 1.2, .02, lz + 1.2); s.fl.position.set(cx, .015, cz);
-}
-const removeSeg = s => scene.remove(s.wall, s.cap, s.fl);
-const segVisible = (s, v) => { s.wall.visible = s.cap.visible = s.fl.visible = v; };
 
 // Point on a rider's path, d cells back from its simulated head (extends straight back past the spawn)
 function pathPoint(b, d, out){
@@ -124,50 +120,29 @@ function pathPoint(b, d, out){
   }
   return out.copy(b.pos);
 }
-/* Visual only: hide the last `trim` cells of wall so it appears to leave the craft's tail.
-   The occupied cells (collisions) are untouched. */
-function layWalls(b, trim){
-  let remain = trim, ex = b.pos.x, ez = b.pos.z;
-  for (let i = b.segs.length - 1; i >= 0; i--) {
-    const s = b.segs[i], sx = wx(s.x0), sz = wx(s.z0), len = Math.abs(ex - sx) + Math.abs(ez - sz);
-    if (remain > 0 && remain >= len) { segVisible(s, false); remain -= len; ex = sx; ez = sz; continue; }
-    const k = len > 0 ? remain / len : 0;
-    sizeSeg(s, ex + (sx - ex) * k, ez + (sz - ez) * k); segVisible(s, true);
-    if (i > 0) { const prev = b.segs[i - 1]; sizeSeg(prev, sx, sz); segVisible(prev, true); }
-    return;
-  }
-}
-
 function buildRiders(roster){
   bikes.forEach(b => {
-    scene.remove(b.mesh.group); b.segs.forEach(removeSeg);
-    disposeRiderVisual(b.mesh); [b.wallMat, b.capMat, b.floorMat].forEach(m => m.dispose());
+    scene.remove(b.mesh.group); trails.remove(b); fx.detachScan(b); disposeRiderVisual(b.mesh);
   });
   bikes = [];
   roster.forEach((p, i) => {
-    const r = RIDERS[i], col = lin(r.color), mesh = createRiderVisual(r.color);
+    const r = RIDERS[i], mesh = createRiderVisual(r.color);
     mesh.group.visible = false; scene.add(mesh.group);
     bikes.push({id:i, r, name:String(p.name || r.name).toUpperCase(), ai:!!p.bot, remote:!!p.remote, gone:false,
       mesh, segs:[], pos:new THREE.Vector3(), vpos:new THREE.Vector3(), alive:false, cleared:true, nt:0, k:0, local:[], gq:[], sched:[], queue:[],
       cx:H, cz:H, dir:0, p:0, mul:1, energy:.35, grind:0, vyaw:0, lean:0, snapT:0, lastLocalK:-1, localT:0,
-      hist:new Int16Array(HIST * 2),
-      wallMat:new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.55, depthWrite:false, side:THREE.DoubleSide}),
-      capMat:new THREE.MeshBasicMaterial({color:col.clone().lerp(new THREE.Color(0xffffff), .5), transparent:true, opacity:1, toneMapped:false}),
-      floorMat:new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.16, blending:THREE.AdditiveBlending, depthWrite:false}),
+      hist:new Int16Array(HIST * 2), trim:0, deathT:0,
       rgb:[(r.color >> 16) & 255, (r.color >> 8) & 255, r.color & 255]});
   });
+  bikes.forEach(b => { trails.add(b); fx.attachScan(b); });
   player = bikes[me] || bikes[0]; scores = bikes.map(() => 0); round = 0;
 }
 
-function revive(b){
-  b.wallMat.opacity = .55; b.capMat.opacity = 1; b.floorMat.opacity = .16;
-  b.mesh.group.visible = b.alive;
-}
+function revive(b){ b.mesh.group.visible = b.alive; }
 
 function resetRound(){
   grid.fill(0);
-  bikes.forEach(b => { b.segs.forEach(removeSeg); b.segs = []; });
-  bursts.forEach(killBurst); bursts.length = 0;
+  bikes.forEach(b => { b.segs = []; });
   const n = bikes.length, rad = Math.floor(N * .34), off = Math.random() * Math.PI * 2;
   bikes.forEach((b, i) => {
     const a = off + i * Math.PI * 2 / n;
@@ -181,6 +156,7 @@ function resetRound(){
     revive(b);
     if (!b.alive) return;
     grid[b.cx + b.cz * N] = b.id + 1;
+    fx.startScan(b);
     startSeg(b);
     if (mode === 'host') net.turn(round, b.id, 0, b.cx, b.cz);
     placeBike(b, 0);
@@ -194,13 +170,15 @@ function placeBike(b, dt){
   // Visual layer: the craft rides the path a little behind the head, eased and banked through turns
   const moving = state === 'run' || state === 'over' || state === 'demo';
   pathPoint(b, VC.vehicle.originBehindHead, b.vpos);
-  updatePose(b, dt, b.vpos, headingOf(b.dir), moving ? BASE * b.mul / VC.vehicle.scale : 0);
-  layWalls(b, VC.vehicle.originBehindHead + b.mesh.tail);
+  b.powerT = Math.max(0, (b.powerT || 0) - dt);
+  b.visualSpeed = (moving ? BASE * b.mul / VC.vehicle.scale : 0) + VC.effects.powerOn.speed * (b.powerT / VC.effects.powerOn.duration);
+  b.particleScale = pipe.particleScale;
+  updatePose(b, dt, b.vpos, headingOf(b.dir), b.visualSpeed);
+  b.trim = VC.vehicle.originBehindHead + b.mesh.tail;   // the wall appears to leave the craft's tail
 }
 
 function turn(b, t){
   b.dir = (b.dir + (t > 0 ? 1 : 3)) % 4;
-  const cur = b.segs[b.segs.length - 1]; if (cur) sizeSeg(cur, wx(b.cx), wx(b.cz));
   startSeg(b);
   b.lastTurnK = b.k; b.grace = 0;
   if (b === player && !b.ai) SFX.blip();
@@ -273,14 +251,15 @@ function think(b){
 
 function crash(b){
   b.alive = false; b.grace = 0; b.mesh.group.visible = false;
-  layWalls(b, 0);
-  explode(b.vpos.x, b.vpos.z, b.r.color);
+  b.trim = 0;   // show the wall right up to the crash point
+  fx.crash(b.vpos.x, b.vpos.z, b.r.color, pipe.particleScale);
   if (state !== 'demo') {
     const dist = player.alive ? player.pos.distanceTo(b.pos) : 20;
     SFX.boom(b === player ? 1 : Math.max(.12, .6 - dist / 120));
   }
   if (b === player && state === 'run') {
-    shake = reduceMotion ? .25 : 1;
+    rig.impact(VC.camera.shake.crash);
+    if (!reduceMotion) slowT = VC.effects.slowMotion.duration;
     const others = bikes.filter(o => o.alive).length;
     SFX.hit('fall');
     const canSkip = mode !== 'guest' && !humansAlive() && others > 1;
@@ -293,10 +272,8 @@ function crash(b){
 function fadeDead(b, dt){
   if (b.cleared) return;
   b.deathT += dt;
-  const k = Math.max(0, 1 - b.deathT / 1.4);
-  b.wallMat.opacity = .55 * k; b.capMat.opacity = k; b.floorMat.opacity = .16 * k;
-  if (b.deathT > 1.4) {
-    b.segs.forEach(removeSeg); b.segs = [];
+  if (b.deathT > DEATH_WINDOW) {
+    b.segs = [];
     const v = b.id + 1; for (let i = 0; i < grid.length; i++) if (grid[i] === v) grid[i] = 0;
     b.cleared = true;
   }
@@ -353,8 +330,7 @@ function addTurnPoint(r, id, n, x, z){
 }
 function guestRound(st){
   round = st.r; grid.fill(0);
-  bikes.forEach(b => { b.segs.forEach(removeSeg); b.segs = []; });
-  bursts.forEach(killBurst); bursts.length = 0;
+  bikes.forEach(b => { b.segs = []; });
   st.b.forEach((a, i) => {
     const b = bikes[i]; if (!b) return;
     Object.assign(b, {cx:a[0], cz:a[1], dir:a[2], p:a[3] / 100, mul:a[4] / 100, alive:!!a[5], energy:a[6] / 100, grind:a[7] ? .22 : 0,
@@ -362,6 +338,7 @@ function guestRound(st){
     resetPose(b, headingOf(a[2]));
     revive(b);
     if (!b.alive) return;
+    fx.startScan(b);
     const pts = guestPts(b);
     for (let k = 1; k < pts.length; k++) raster(b.id, pts[k - 1].x, pts[k - 1].z, pts[k].x, pts[k].z);
     grid[b.cx + b.cz * N] = b.id + 1;
@@ -369,7 +346,7 @@ function guestRound(st){
   });
   state = 'countdown'; cd = st.cd; lastCd = 4; spectT = 0; deadT = 0;
   SFX.riser(Math.max(.6, st.cd));
-  introCam();
+  rig.intro(player);
   updateBoard();
 }
 function applySnapshot(st){
@@ -392,7 +369,7 @@ function applySnapshot(st){
   });
   if (st.s !== state) {
     const prev = state; state = st.s;
-    if (state === 'run' && prev === 'countdown') { flash('GO', '', .6); SFX.hit('go'); }
+    if (state === 'run' && prev === 'countdown') { flash('GO', '', .6); SFX.hit('go'); powerOn(); }
     else if (state === 'over') roundMsg(st.w >= 0 ? bikes[st.w] : null);
   }
   if (state === 'countdown') cd = st.cd;
@@ -417,56 +394,15 @@ function glide(b, dt){
     if (b === player && b.gq.length) guestTurnNow(b, b.gq.shift());
   }
 }
+// Guest: mirror the known turn points (host-confirmed plus locally predicted) into the rider's segments
 function syncSegs(b){
   const pts = guestPts(b);
-  while (b.segs.length > pts.length) removeSeg(b.segs.pop());
-  for (let i = Math.max(0, b.segs.length - 3); i < b.segs.length; i++) {
-    const s = b.segs[i], p = pts[i];
-    if (s.x0 !== p.x || s.z0 !== p.z) { s.x0 = p.x; s.z0 = p.z; if (i > 0) sizeSeg(b.segs[i - 1], wx(p.x), wx(p.z)); }
-  }
-  while (b.segs.length < pts.length) {
-    const i = b.segs.length, p = pts[i];
-    if (i > 0) sizeSeg(b.segs[i - 1], wx(p.x), wx(p.z));
-    startSegAt(b, p.x, p.z);
-  }
+  if (b.segs.length > pts.length) b.segs.length = pts.length;
+  for (let i = Math.max(0, b.segs.length - 3); i < b.segs.length; i++) { const s = b.segs[i], p = pts[i]; s.x0 = p.x; s.z0 = p.z; }
+  while (b.segs.length < pts.length) { const p = pts[b.segs.length]; startSegAt(b, p.x, p.z); }
 }
 
 /* ---------- Crash particles ---------- */
-const bursts = [];
-function explode(x, z, hex){
-  const color = lin(hex), n = Math.round(280 * pipe.particleScale), pos = new Float32Array(n * 3), vel = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    pos[i*3] = x + (Math.random() - .5) * 1.6; pos[i*3+1] = .4 + Math.random() * .8; pos[i*3+2] = z + (Math.random() - .5) * 1.6;
-    const a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 13;
-    vel[i*3] = Math.cos(a) * sp; vel[i*3+1] = 3 + Math.random() * 10; vel[i*3+2] = Math.sin(a) * sp;
-  }
-  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const points = new THREE.Points(geo, new THREE.PointsMaterial({color, size:.34, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false}));
-  const ring = new THREE.Mesh(new THREE.RingGeometry(.6, .9, 56), new THREE.MeshBasicMaterial({color, transparent:true, opacity:.85, side:THREE.DoubleSide, blending:THREE.AdditiveBlending, depthWrite:false}));
-  ring.rotation.x = -Math.PI / 2; ring.position.set(x, .06, z);
-  scene.add(points, ring); bursts.push({points, ring, vel, t:0});
-}
-function killBurst(b){
-  scene.remove(b.points, b.ring);
-  b.points.geometry.dispose(); b.ring.geometry.dispose(); b.points.material.dispose(); b.ring.material.dispose();
-}
-function updateBursts(dt){
-  for (let j = bursts.length - 1; j >= 0; j--) {
-    const b = bursts[j]; b.t += dt;
-    const p = b.points.geometry.attributes.position.array, v = b.vel;
-    for (let i = 0; i < p.length; i += 3) {
-      v[i+1] -= 16 * dt;
-      p[i] += v[i] * dt; p[i+1] += v[i+1] * dt; p[i+2] += v[i+2] * dt;
-      if (p[i+1] < .05) { p[i+1] = .05; v[i+1] *= -.3; v[i] *= .6; v[i+2] *= .6; }
-    }
-    b.points.geometry.attributes.position.needsUpdate = true;
-    b.points.material.opacity = Math.max(0, 1 - b.t / 1.8);
-    b.ring.scale.setScalar(1 + b.t * 28);
-    b.ring.material.opacity = Math.max(0, .85 - b.t * 1.1);
-    if (b.t > 2) { killBurst(b); bursts.splice(j, 1); }
-  }
-}
-
 /* ---------- HUD ---------- */
 function setMsg(m, s){ $('msg').textContent = m || ''; $('sub').textContent = s || ''; msgT = 0; }
 function flash(m, s, t){ setMsg(m, s); msgT = t; }
@@ -508,37 +444,8 @@ function updateHud(dt){
 }
 
 /* ---------- Camera ---------- */
-const CAMS = ['Chase', 'Cockpit', 'Overhead'];
-const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
-function introCam(){
-  const fx = -Math.sin(player.vyaw), fz = -Math.cos(player.vyaw);
-  camPos.set(player.vpos.x - fx * 30, 34, player.vpos.z - fz * 30); camLook.copy(player.vpos);
-  camera.fov = 68; camera.updateProjectionMatrix();
-}
-function updateCamera(dt){
-  if (state === 'demo' || state === 'wait') {
-    orbitT += dt * .06;
-    const O = VC.camera.orbit;
-    tmpA.set(Math.cos(orbitT) * O.radius, O.height, Math.sin(orbitT) * O.radius); tmpB.set(0, 0, 0);
-    camPos.lerp(tmpA, 1 - Math.exp(-dt * 2)); camLook.lerp(tmpB, 1 - Math.exp(-dt * 2));
-    camera.position.copy(camPos); camera.lookAt(camLook); return;
-  }
-  let b = player;
-  if (!player.alive) { deadT += dt; if (deadT > 1.3) b = bikes.find(o => o.alive) || player; }
-  const fx = -Math.sin(b.vyaw), fz = -Math.cos(b.vyaw), P = b.vpos;
-  let mode = camMode, k = 6;
-  if (!b.alive) mode = 2;
-  const C = VC.camera;
-  if (mode === 0) { tmpA.set(P.x - fx * C.chase.back, C.chase.height, P.z - fz * C.chase.back); tmpB.set(P.x + fx * C.chase.ahead, C.chase.lookHeight, P.z + fz * C.chase.ahead); k = state === 'countdown' ? 2.2 : C.chase.follow; }
-  else if (mode === 1) { tmpA.set(P.x + fx * .35, C.cockpit.height, P.z + fz * .35); tmpB.set(P.x + fx * C.cockpit.ahead, .7, P.z + fz * C.cockpit.ahead); k = 30; }
-  else { tmpA.set(P.x, C.overhead.height, P.z + C.overhead.back); tmpB.copy(P); k = 3; }
-  camPos.lerp(tmpA, 1 - Math.exp(-dt * k)); camLook.lerp(tmpB, 1 - Math.exp(-dt * k));
-  camera.position.copy(camPos);
-  if (shake > 0) { camera.position.x += (Math.random() - .5) * shake * .9; camera.position.y += (Math.random() - .5) * shake * .9; shake = Math.max(0, shake - dt * 2.2); }
-  camera.lookAt(camLook);
-  const fov = 68 + (player.alive ? (player.mul - 1) * 16 : 0);
-  if (Math.abs(camera.fov - fov) > .05) { camera.fov += (fov - camera.fov) * Math.min(1, dt * 5); camera.updateProjectionMatrix(); }
-}
+// Thrusters power on at GO: a short spike in the craft's visual speed
+function powerOn(){ bikes.forEach(b => { b.powerT = VC.effects.powerOn.duration; }); }
 
 /* ---------- Flow ---------- */
 function startDemo(){
@@ -568,7 +475,7 @@ function startOnline(o){
 function nextRound(){
   round++; lastW = -1; resetRound(); updateBoard(); SFX.riser(3); lastCd = 4;
   state = 'countdown'; cd = 3;
-  introCam();
+  rig.intro(player);
   pushState();
 }
 function roundMsg(w){
@@ -683,11 +590,14 @@ function frame(now){
   requestAnimationFrame(frame);
   const raw = (now - last) / 1000, real = Math.min(.05, raw); last = now;
   const dt = paused ? 0 : real;
+  // Visual clock: slows briefly after your own crash; the simulation always uses dt
+  if (slowT > 0) slowT -= real;
+  const vdt = slowT > 0 ? dt * VC.effects.slowMotion.scale : dt;
   if (state === 'countdown') {
     cd -= dt;
     const s = Math.ceil(cd);
     if (cd > 0) setMsg(String(s), `Round ${round} · ${coarse ? 'buttons or swipe' : 'arrows or A / D to turn'}`);
-    else if (mode !== 'guest') { state = 'run'; flash('GO', '', .6); SFX.hit('go'); pushState(); }
+    else if (mode !== 'guest') { state = 'run'; flash('GO', '', .6); SFX.hit('go'); powerOn(); pushState(); }
     else setMsg('GO', '');
     if (cd > 0 && Math.ceil(cd) !== lastCd) { lastCd = Math.ceil(cd); SFX.hit('tick'); }
   }
@@ -699,7 +609,9 @@ function frame(now){
     if (state !== 'demo') player.wantBoost = keys.boost && player.alive;
     bikes.forEach(b => update(b, dt));
   }
-  bikes.forEach(b => b.alive ? placeBike(b, dt) : fadeDead(b, dt));
+  bikes.forEach(b => b.alive ? placeBike(b, vdt) : fadeDead(b, dt));
+  trails.tick(vdt);
+  bikes.forEach(b => trails.update(b, wx, b.alive ? b.trim : 0, DEATH_WINDOW));
   if (mode !== 'guest') {
     if (state === 'run') {
       const alive = bikes.filter(b => b.alive);
@@ -712,19 +624,24 @@ function frame(now){
     }
   }
   if (mode === 'host' && playing()) { snapAcc += real; if (snapAcc >= SNAP_DT) pushState(); }
-  updateBursts(dt);
-  updateCamera(dt);
-  updateHud(dt);
   const pl = player && player.alive;
+  const boosting = pl && state === 'run' && keys.boost && player.energy > .02 ? 1 : 0;
+  const speedK = pl && state === 'run' ? Math.max(0, Math.min(1, (player.mul - 1) / .7)) : 0;
+  fx.update(vdt, bikes, boosting);
+  // Camera follows you; once you're out it switches to a surviving rider
+  if (!pl && playing()) deadT += real; else deadT = 0;
+  const follow = !player ? null : pl || deadT < 1.3 ? player : bikes.find(o => o.alive) || player;
+  rig.update(vdt, {mode:camMode, focus:follow, player, boost:Math.max(speedK, boosting * .6), countdown:state === 'countdown', menu:state === 'demo' || state === 'wait'});
+  updateHud(dt);
   SFX.mood(paused ? .15 : state === 'run' ? (pl ? 1 : .6) : state === 'countdown' ? .55 : state === 'over' ? .5 : .25);
   SFX.engine(state === 'run' && pl && !paused ? 1 : (state === 'countdown' && !paused ? .45 : 0), player ? player.mul : 1);
   // Lights follow the local rider (or the arena centre during the attract demo)
   const focus = state === 'demo' || !player ? bikes[0] : player;
-  if (focus) pipe.follow(state === 'demo' ? camLook : focus.vpos, focus.r.color);
+  if (focus) pipe.follow(state === 'demo' ? rig.look : focus.vpos, focus.r.color);
   glowSlots.forEach((g, i) => { const b = bikes[i]; g.on = !!b && b.alive; if (g.on) { g.pos = b.vpos; g.colorHex = b.r.color; } });
   pipe.setGlows(glowSlots);
-  arena.update(dt, glowSlots, camera.position, pipe.particleScale);
-  pipe.render(raw, pl && state === 'run' ? (player.mul - 1) / .7 : 0);
+  arena.update(vdt, glowSlots, camera.position, pipe.particleScale);
+  pipe.render(raw, Math.max(speedK, boosting));
 }
 ['pointerdown', 'keydown'].forEach(t => addEventListener(t, () => SFX.init(), {once:true}));
 startDemo();
