@@ -64,7 +64,7 @@ function route(){
 }
 
 /* ---------- Title screen ---------- */
-const BOOT = ['GRID OS 3.0 // light cycle division', 'mounting cycle bay .............. ', 'calibrating jetwall emitters .... ', 'linking to the online grid ...... '];
+const BOOT = ['PHANTOM OS 3.0 // night circuit division', 'mounting phantom bay ............ ', 'calibrating light wall emitters .. ', 'linking to the online grid ...... '];
 async function boot(){
   const el = $('bootLog');
   const status = async i => i < BOOT.length - 1 ? 'OK' : ((await online) ? 'ONLINE' : 'OFFLINE');
@@ -230,7 +230,7 @@ $('ride').addEventListener('click', () => {
 });
 
 /* ---------- Match end / quit ---------- */
-const WIN_QUIPS = ['Derezzed the competition.', 'Light work. Literally.', 'Wall-to-wall victory.', 'You were on a roll. Well, two wheels.'];
+const WIN_QUIPS = ['Ghosted the competition.', 'Light work. Literally.', 'Wall-to-wall victory.', 'A phantom finish. They never saw you coming.'];
 const LOSS_QUIPS = ['Rebooting pride.exe…', 'Every wall is a lesson. Some are just very bright.', 'Close call. The grid remembers.', 'Hit a wall? Happens to the best of us.'];
 function showResult(s){
   const title = s.won ? 'YOU OWN THE GRID' : s.winner ? `${s.winner} OWNS THE GRID` : 'MATCH OVER';
@@ -373,9 +373,9 @@ $('leaveRoom').addEventListener('click', async () => { await leaveRoom(); show('
 $('shareBtn').addEventListener('click', async () => {
   if (!room) return;
   const url = `${location.origin}${location.pathname}?join=${room.code}`;
-  const text = `Ride with me on Retrocycles 3D. Grid code: ${room.code}`;
+  const text = `Race me on Phantom Run. Grid code: ${room.code}`;
   try {
-    if (navigator.share) await navigator.share({title:'Retrocycles 3D', text, url});
+    if (navigator.share) await navigator.share({title:'Phantom Run', text, url});
     else { await navigator.clipboard.writeText(`${text}\n${url}`); toast('Code and link copied'); }
   } catch (e) { if (e.name !== 'AbortError') toast(`Grid code: ${room.code}`); }
 });

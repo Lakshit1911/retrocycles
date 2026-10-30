@@ -1,4 +1,4 @@
-/* Retrocycles 3D engine: scene, riders, simulation, audio, HUD and camera.
+/* Phantom Run engine: scene, riders, simulation, audio, HUD and camera.
    One engine, three roles:
      solo  - simulates everything locally
      host  - simulates everything, streams snapshots + turn points to guests
@@ -324,7 +324,7 @@ function crash(b){
     const others = bikes.filter(o => o.alive).length;
     SFX.hit('fall');
     const canSkip = mode !== 'guest' && !humansAlive() && others > 1;
-    setMsg('DEREZZED', canSkip ? (coarse ? 'Tap to skip' : 'Space to skip') : others > 1 ? 'Spectating' : '');
+    setMsg('WIPED OUT', canSkip ? (coarse ? 'Tap to skip' : 'Space to skip') : others > 1 ? 'Spectating' : '');
   }
   if (state !== 'demo') updateBoard();
   if (mode === 'host') pushState();
@@ -471,7 +471,7 @@ function syncSegs(b){
   }
 }
 
-/* ---------- Derez particles ---------- */
+/* ---------- Crash particles ---------- */
 const bursts = [];
 function explode(x, z, color){
   const n = 280, pos = new Float32Array(n * 3), vel = new Float32Array(n * 3);

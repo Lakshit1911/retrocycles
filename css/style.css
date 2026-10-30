@@ -104,7 +104,7 @@ body.coarse .hints{display:none}
 .corner-btn[aria-pressed="true"]{color:var(--dim);text-decoration:line-through}
 h1,h2{margin:0}
 h2{font-size:clamp(28px,7vw,40px);font-weight:700;font-style:italic;letter-spacing:.03em;margin-top:6px;line-height:1.05}
-.logo{margin:6px 0 0;font-size:clamp(34px,11vw,96px);white-space:nowrap;line-height:.9;font-weight:700;font-style:italic;letter-spacing:.02em}
+.logo{margin:6px 0 0;font-size:clamp(32px,10.2vw,70px);white-space:nowrap;line-height:.9;font-weight:700;font-style:italic;letter-spacing:.02em}
 .logo.sm{font-size:clamp(36px,9vw,60px)}
 .logo .outline{color:transparent;-webkit-text-stroke:1.5px var(--cyan);text-shadow:0 0 22px rgba(57,230,255,.35)}
 .logo .fill{color:var(--ink);text-shadow:0 0 14px rgba(57,230,255,.8),0 0 40px rgba(57,230,255,.4)}

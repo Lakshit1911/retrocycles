@@ -1,6 +1,6 @@
-# Retrocycles 3D
+# Phantom Run
 
-A neon light-cycle arena in the browser. Race AI rivals solo, or host an online grid and share a 5-character code with friends (up to 6 riders, empty seats filled with AI if you like). Works with keyboard or touch (buttons or swipe).
+An anti-gravity night race in the browser: every rider leaves a wall of light behind it. Race AI rivals solo, or host an online grid and share a 5-character code with friends (up to 6 riders, empty seats filled with AI if you like). Works with keyboard or touch (buttons or swipe).
 
 Static site: no build step. Three.js r128 and the Firebase JS SDK load from CDNs.
 
@@ -21,7 +21,7 @@ database.rules.json      Realtime Database security rules
 ## Firebase console setup (one time)
 
 1. **Authentication → Sign-in method**: enable **Email/Password** and **Google**.
-2. **Authentication → Settings → Authorized domains**: add your Vercel domain(s), e.g. `retrocycles.vercel.app` (and any custom domain).
+2. **Authentication → Settings → Authorized domains**: add your Vercel domain(s), e.g. `<project>.vercel.app` (and any custom domain).
 3. **Realtime Database → Rules**: paste the contents of `database.rules.json` and publish.
 
 ## How online play works
