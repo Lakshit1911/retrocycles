@@ -142,7 +142,13 @@ $('forgotBtn').addEventListener('click', async () => {
 $('guestBtn').addEventListener('click', () => { guest = true; show('home'); });
 
 function initAuth(){
-  redirectDone = FB.redirectResult().catch(err => { authMsg(FB.authError(err)); return {error:err}; });
+  // If this page load just completed a Google sign-in, skip the title and go straight to Home
+  redirectDone = FB.redirectResult()
+    .then(async r => {
+      if (r && r.user) { await authReady; guest = false; if (screen === 'title' || screen === 'auth') route(); }
+      return r;
+    })
+    .catch(err => { authMsg(FB.authError(err)); return {error:err}; });
   FB.onAuth(async u => {
     user = u;
     if (u) {
