@@ -189,7 +189,13 @@ h2{font-family:var(--display);font-size:clamp(17px,4.4vw,22px);letter-spacing:.1
 .tabs button{flex:1}
 .settings.locked .stepper button,.settings.locked .seg button{pointer-events:none}
 .settings.locked .stepper button{opacity:.3}
-.settings.locked .device .seg button{pointer-events:auto}
+.settings.locked .device .seg button,.settings.locked .device input{pointer-events:auto}
+.volume{-webkit-appearance:none;appearance:none;width:min(220px,100%);height:28px;background:transparent;cursor:pointer}
+.volume::-webkit-slider-runnable-track{height:2px;border-radius:2px;background:linear-gradient(90deg,var(--accent) var(--v,50%),var(--line-strong) var(--v,50%))}
+.volume::-moz-range-track{height:2px;border-radius:2px;background:var(--line-strong)}
+.volume::-moz-range-progress{height:2px;background:var(--accent)}
+.volume::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-6px;border-radius:50%;background:var(--ink);border:0;box-shadow:0 0 0 3px var(--accent-soft)}
+.volume::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:var(--ink);border:0}
 
 /* Home tiles */
 .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}

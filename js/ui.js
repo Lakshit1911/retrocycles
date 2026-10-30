@@ -2,6 +2,7 @@
    Firebase loads lazily, so the solo game still runs if the network or Firebase is unreachable. */
 import { Game, RIDERS, DIFF } from './game.js';
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
+import { SFX } from './audio.js';
 
 const $ = id => document.getElementById(id);
 const qa = (s, el = document) => [...el.querySelectorAll(s)];
@@ -247,6 +248,20 @@ qa('#diffSeg button').forEach(b => b.addEventListener('click', () => { settings.
 qa('#winSeg button').forEach(b => b.addEventListener('click', () => { settings.win = +b.dataset.w; changed(); }));
 // Graphics quality is per device, so it never goes into the room settings
 qa('#qualitySeg button').forEach(b => b.addEventListener('click', () => { Game.setQuality(b.dataset.q); renderSettings(); }));
+// Master volume (per device), alongside the SOUND mute button
+let volume = 50;
+try { const v = localStorage.getItem('pr-volume'); if (v !== null) volume = +v; } catch (e) {}
+const applyVolume = () => {
+  SFX.setVolume(volume / 100);
+  $('volume').value = volume; $('volume').style.setProperty('--v', volume + '%');
+};
+$('volume').addEventListener('input', e => {
+  volume = +e.target.value; applyVolume();
+  try { localStorage.setItem('pr-volume', String(volume)); } catch (err) {}
+});
+applyVolume();
+// Quiet clicks on menu buttons
+document.addEventListener('click', e => { if (e.target.closest('.menu button, .pausebox button')) SFX.click(); });
 Game.hooks.quality = (q, auto) => {
   renderSettings();
   if (auto) toast(`Graphics lowered to ${q[0].toUpperCase() + q.slice(1)} to keep the frame rate smooth`);

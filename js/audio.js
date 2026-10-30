@@ -61,13 +61,20 @@ export function createAudio(){
       this.d1.connect(this.droneG); this.d2.connect(d2g); d2g.connect(dF); dF.connect(this.droneG);
       this.d1.frequency.value = hz(26); this.d2.frequency.value = hz(38); this.d1.start(); this.d2.start();
 
-      // Engine hum (game sound, not music)
-      this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 600; this.lp.Q.value = 5;
+      // Engine: a low turbine hum (two detuned oscillators through a low-pass) plus a whine that
+      // rises on boost. Game sound, not music, so it bypasses the side-chain.
+      this.lp = ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 300; this.lp.Q.value = 4;
       this.eg = ctx.createGain(); this.eg.gain.value = 0; this.lp.connect(this.eg); this.eg.connect(this.master);
-      this.o1 = ctx.createOscillator(); this.o1.type = 'sawtooth'; this.o1.frequency.value = 46;
-      this.o2 = ctx.createOscillator(); this.o2.type = 'square'; this.o2.frequency.value = 46.5;
-      const g2 = ctx.createGain(); g2.gain.value = .4;
+      this.o1 = ctx.createOscillator(); this.o1.type = 'sawtooth'; this.o1.frequency.value = 52;
+      this.o2 = ctx.createOscillator(); this.o2.type = 'sawtooth'; this.o2.frequency.value = 52.4;
+      const g2 = ctx.createGain(); g2.gain.value = .6;
       this.o1.connect(this.lp); this.o2.connect(g2); g2.connect(this.lp); this.o1.start(); this.o2.start();
+      this.wo = ctx.createOscillator(); this.wo.type = 'sine'; this.wo.frequency.value = 900;
+      this.wo2 = ctx.createOscillator(); this.wo2.type = 'triangle'; this.wo2.frequency.value = 1803;
+      this.wg = ctx.createGain(); this.wg.gain.value = 0;
+      const w2g = ctx.createGain(); w2g.gain.value = .35;
+      this.wo.connect(this.wg); this.wo2.connect(w2g); w2g.connect(this.wg); this.wg.connect(this.master);
+      this.wo.start(); this.wo2.start();
 
       const nb = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate), nd = nb.getChannelData(0);
       for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1; this.noise = nb;
@@ -94,12 +101,20 @@ export function createAudio(){
       this.droneG.gain.setTargetAtTime(.35 + .25 * l, t, 1);
     },
 
-    engine(level, mul){
-      if (!this.ctx) return; const t = this.ctx.currentTime;
-      this.eg.gain.setTargetAtTime(level * .08, t, .1);
-      const f = 44 + (mul - 1) * 55;
-      this.o1.frequency.setTargetAtTime(f, t, .08); this.o2.frequency.setTargetAtTime(f * 1.012, t, .08);
-      this.lp.frequency.setTargetAtTime(420 + (mul - 1) * 1500, t, .1);
+    // level: 0 silent .. 1 racing; mul: speed multiplier (1 cruise, 1.7 full boost); boost: 0..1
+    engine(level, mul, boost){
+      if (!this.ctx) return; const t = this.ctx.currentTime, b = boost || 0, sp = Math.max(0, mul - 1);
+      this.eg.gain.setTargetAtTime(level * .1, t, .1);
+      const f = 52 + sp * 70;
+      this.o1.frequency.setTargetAtTime(f, t, .08); this.o2.frequency.setTargetAtTime(f * 1.008, t, .08);
+      this.lp.frequency.setTargetAtTime(260 + sp * 1400 + level * 120, t, .1);
+      const wf = 820 + sp * 900 + b * 1500;
+      this.wo.frequency.setTargetAtTime(wf, t, .25); this.wo2.frequency.setTargetAtTime(wf * 2.003, t, .25);
+      this.wg.gain.setTargetAtTime(level * (.004 + b * .028), t, .15);
+    },
+    setVolume(v){
+      this.volume = Math.max(0, Math.min(1, v));
+      if (this.master && !this.muted) this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, .05);
     },
 
     /* ---------- voices ---------- */
@@ -200,12 +215,35 @@ export function createAudio(){
       ng.gain.setValueAtTime(.0001, t); ng.gain.exponentialRampToValueAtTime(.25, t + dur * .95); ng.gain.exponentialRampToValueAtTime(.0001, t + dur + .1);
       s.connect(f); f.connect(ng); ng.connect(this.fxG); s.start(t); s.stop(t + dur + .15);
     },
-    blip(){ if (this.ctx) this.tone('square', 620, 930, .05, .025, this.ctx.currentTime, this.fxG); },
+    // Noise through a sweeping band-pass, optionally panned (-1 left .. 1 right)
+    sweep(dur, vol, f0, f1, q, pan, when){
+      const c = this.ctx, t = when || c.currentTime, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+      s.buffer = this.noise; f.type = 'bandpass'; f.Q.value = q;
+      f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+      g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * .35); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+      s.connect(f); f.connect(g);
+      if (pan && c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan)); g.connect(p); p.connect(this.fxG); }
+      else g.connect(this.fxG);
+      s.start(t, Math.random() * .5); s.stop(t + dur + .03);
+    },
+    // Turn: a soft whoosh toward the side you turn
+    whoosh(dir){ if (this.ctx) this.sweep(.2, .08, 380, 2200, 1.4, (dir || 0) * .55); },
+    // Close pass: a filtered-noise fly-by (intensity 0..1, pan -1..1)
+    flyby(intensity, pan){ if (this.ctx) this.sweep(.5, .05 + .11 * Math.min(1, intensity), 3400, 420, 2.2, pan || 0); },
+    // Menus: a quiet click
+    click(){ if (this.ctx) this.tone('sine', 2100, 1300, .03, .012, this.ctx.currentTime, this.fxG); },
+    blip(){ this.whoosh(0); },
+    // Crash: a deep impact plus a glassy shatter
     boom(v){
       if (!this.ctx) return; const t = this.ctx.currentTime;
-      this.hiss(.9, .6 * v, 'lowpass', 4000, 120, t, this.fxG);
-      this.tone('sine', 170, 34, .8, .55 * v, t, this.fxG);
-      this.tone('square', 1400, 70, .45, .04 * v, t, this.fxG);
+      this.hiss(.9, .55 * v, 'lowpass', 4000, 120, t, this.fxG);
+      this.tone('sine', 150, 30, .9, .6 * v, t, this.fxG);
+      this.tone('square', 1400, 70, .35, .03 * v, t, this.fxG);
+      for (let i = 0; i < 9; i++) {
+        const f = 2400 + Math.random() * 4200, d = .06 + Math.random() * .3;
+        this.tone(Math.random() < .5 ? 'triangle' : 'sine', f, f * (.92 + Math.random() * .06), d, .022 * v, t + .01 + Math.random() * .14, this.fxG);
+      }
+      this.hiss(.35, .12 * v, 'highpass', 6500, 0, t + .02, this.fxG);
     },
 
     /* ---------- sequencer ---------- */

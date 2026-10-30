@@ -192,7 +192,7 @@ function turn(b, t){
   b.dir = (b.dir + (t > 0 ? 1 : 3)) % 4;
   startSeg(b);
   b.lastTurnK = b.k; b.grace = 0;
-  if (b === player && !b.ai) SFX.blip();
+  if (b === player && !b.ai) SFX.whoosh(t > 0 ? 1 : -1);
   if (mode === 'host') net.turn(round, b.id, b.nt - 1, b.cx, b.cz);
 }
 
@@ -390,7 +390,7 @@ function guestTurnNow(b, t){
   net.turn(t, b.k, round);
   b.dir = (b.dir + (t > 0 ? 1 : 3)) % 4;
   b.local.push({x:b.cx, z:b.cz}); b.localT = performance.now(); b.lastLocalK = b.k;
-  SFX.blip();
+  SFX.whoosh(t > 0 ? 1 : -1);
 }
 // Dead-reckon a bike forward from its last snapshot
 function glide(b, dt){
@@ -628,6 +628,25 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
 });
 
+/* Close-pass audio: a fly-by when you start riding a wall's slipstream or skim past another rider */
+const passTmp = new THREE.Vector3();
+function closePasses(now){
+  const grinding = player.grind > 0;
+  if (grinding && !player.wasGrinding) SFX.flyby(.55, 0);
+  player.wasGrinding = grinding;
+  const fx = -Math.sin(player.vyaw), fz = -Math.cos(player.vyaw);
+  for (const b of bikes) {
+    if (b === player || !b.alive) continue;
+    const d = player.pos.distanceTo(b.pos);
+    if (d > 3.2 || (b.passCool || 0) > now) continue;
+    passTmp.subVectors(b.pos, player.pos);
+    // which side they pass on: positive = right of your heading
+    const side = Math.sign(-fz * passTmp.x + fx * passTmp.z);
+    SFX.flyby(1.2 - d / 3.2, side * .7);
+    b.passCool = now + 1200;
+  }
+}
+
 /* ---------- Loop ---------- */
 let last = performance.now();
 const glowSlots = RIDERS.map(() => ({pos:null, colorHex:0, on:false}));
@@ -680,7 +699,8 @@ function frame(now){
   updateHero(vdt);
   updateHud(dt);
   SFX.mood(paused ? .15 : state === 'run' ? (pl ? 1 : .6) : state === 'countdown' ? .55 : state === 'over' ? .5 : .25);
-  SFX.engine(state === 'run' && pl && !paused ? 1 : (state === 'countdown' && !paused ? .45 : 0), player ? player.mul : 1);
+  SFX.engine(state === 'run' && pl && !paused ? 1 : (state === 'countdown' && !paused ? .45 : 0), player ? player.mul : 1, boosting);
+  if (pl && state === 'run' && !paused) closePasses(now);
   // Lights follow the local rider (or the arena centre during the attract demo)
   const focus = state === 'demo' || !player ? bikes[0] : player;
   if (focus) pipe.follow(state === 'demo' ? rig.look : focus.vpos, focus.r.color);
