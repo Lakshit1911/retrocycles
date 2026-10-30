@@ -25,11 +25,18 @@ js/config.js             Firebase web config
 database.rules.json      Realtime Database security rules
 ```
 
+## Look and feel
+
+The "Midnight Grand Prix" art direction: a dark, rain-polished arena where the riders are the light.
+Every tunable number (palette, bloom, fog, lights, camera, wall look, particle counts, quality levels)
+lives in `js/visuals/config.js` (`VISUAL_CONFIG`). Graphics quality (Low / Medium / High) is per device
+and drops a level automatically if the frame rate stays under 45 fps for 3 seconds.
+
 ## Firebase console setup (one time)
 
 1. **Authentication → Sign-in method**: enable **Email/Password** and **Google**.
 2. **Authentication → Settings → Authorized domains**: add your Vercel domain(s), e.g. `<project>.vercel.app` (and any custom domain).
-3. **Realtime Database → Rules**: paste the contents of `database.rules.json` and publish.
+3. **Realtime Database → Rules**: paste the contents of `database.rules.json` and publish. Republish whenever the file changes (the Garage colour needs the latest version).
 4. **Google sign-in on your domain** (Google Cloud Console → project `retrocycles-e9965` → APIs & Services → Credentials → OAuth 2.0 Client IDs → *Web client (auto created by Google Service)*):
    - Authorized JavaScript origins: `https://<your-domain>`
    - Authorized redirect URIs: `https://<your-domain>/__/auth/handler`
