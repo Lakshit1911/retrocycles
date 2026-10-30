@@ -3,6 +3,7 @@
    Nothing here feeds back into positions, cells or collisions. */
 import { createVanta } from '../vanta.js';
 import { VISUAL_CONFIG as VC } from './config.js';
+import { linHex } from './renderer.js';
 const THREE = window.THREE;
 
 // Model forward is -Z, so a heading (dx, dz) maps to rotation.y = atan2(-dx, -dz)
@@ -10,8 +11,23 @@ export const headingYaw = (dx, dz) => Math.atan2(-dx, -dz);
 const wrap = a => ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
 const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
+/* The model is authored with sRGB hex colours. Convert its fixed paints (body, chrome, glass...)
+   to linear once; accent-driven parts already get the linear rider colour we pass in. */
+function linearizeFixedColours(root, accentHex){
+  const acc = new THREE.Color(accentHex), caliper = acc.clone().multiplyScalar(0.6), seen = new Set();
+  root.traverse(o => {
+    const m = o.material;
+    if (!m || seen.has(m) || m.isShaderMaterial) return;
+    seen.add(m);
+    if (m.color && !m.color.equals(acc) && !m.color.equals(caliper)) m.color.convertSRGBToLinear();
+    if (m.emissive) m.emissive.convertSRGBToLinear();
+  });
+}
+
 export function createRiderVisual(color){
-  const root = createVanta(THREE, {hover:true, color, scale:VC.vehicle.scale});
+  const accent = linHex(color);
+  const root = createVanta(THREE, {hover:true, color:accent, scale:VC.vehicle.scale});
+  linearizeFixedColours(root, accent);
   const ud = root.userData;
   // Distance from the craft origin back to where its light wall begins, in cells
   const tail = ud.trailOrigin.position.z * VC.vehicle.scale;

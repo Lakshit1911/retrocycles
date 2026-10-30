@@ -170,6 +170,7 @@ h2{font-size:clamp(28px,7vw,40px);font-weight:700;font-style:italic;letter-spaci
 .tabs button{flex:1}
 .settings.locked .stepper button,.settings.locked .seg button{pointer-events:none}
 .settings.locked .stepper button{opacity:.3}
+.settings.locked .device .seg button{pointer-events:auto}
 
 /* Home tiles */
 .tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}

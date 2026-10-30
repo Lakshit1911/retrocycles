@@ -6,6 +6,7 @@
              its own turns so steering feels instant */
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, headingYaw } from './visuals/riders.js';
+import { createPipeline, lin, defaultQuality } from './visuals/renderer.js';
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const N = 128, H = N / 2, WALL_H = VC.wall.height, T = 0.16, BASE = 15;
@@ -27,33 +28,30 @@ addEventListener('touchstart', () => {
   if (playing()) $('touch').hidden = false;
 }, {once:true, passive:true});
 
-export const hooks = {end:null, quit:null};
+export const hooks = {end:null, quit:null, quality:null};
 let cfg = {diff:'rider', win:5};
 let mode = 'solo', net = null, matchId = '', me = 0, lastW = -1, snapAcc = 0, sentBoost = false;
 let turnLog = {};
 
 /* ---------- Scene ---------- */
-const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.setSize(innerWidth, innerHeight);
-$('stage').appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070d);
-scene.fog = new THREE.FogExp2(0x05070d, 0.0062);
 const camera = new THREE.PerspectiveCamera(68, innerWidth / innerHeight, 0.1, 1400);
-scene.add(new THREE.AmbientLight(0x2a3b4a, .9));
-scene.add(new THREE.HemisphereLight(0x4a8db0, 0x05070d, .55));
-const sun = new THREE.DirectionalLight(0xc8eeff, .9); sun.position.set(40, 70, 25); scene.add(sun);
-const rim = new THREE.DirectionalLight(0x6a5cff, .45); rim.position.set(-50, 20, -40); scene.add(rim);
+let savedQuality = null;
+try { savedQuality = localStorage.getItem('pr-quality'); } catch (e) {}
+// Renderer, colour pipeline, reflections, lights, fog, bloom and quality levels (js/visuals/renderer.js)
+const pipe = createPipeline({mount:$('stage'), scene, camera, quality:savedQuality || defaultQuality(),
+  onAutoDrop:q => hooks.quality && hooks.quality(q, true)});
+const renderer = pipe.renderer;
 
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshBasicMaterial({color:0x050a10}));
-floor.rotation.x = -Math.PI / 2; scene.add(floor);
-const outer = new THREE.GridHelper(640, 80, 0x0c2330, 0x0c2330); outer.position.y = 0.002; scene.add(outer);
-const fine = new THREE.GridHelper(N, N, 0x0e2c38, 0x0e2c38); fine.material.transparent = true; fine.material.opacity = .45; fine.position.y = 0.006; scene.add(fine);
-const major = new THREE.GridHelper(N, N / 8, 0x2a8fab, 0x1a5d72); major.position.y = 0.01; scene.add(major);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshStandardMaterial({
+  color:lin(VC.render.floorColor), metalness:VC.render.floorMetalness, roughness:VC.render.floorRoughness, envMapIntensity:VC.render.floorEnv}));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+const outer = new THREE.GridHelper(640, 80, lin(0x0c2330), lin(0x0c2330)); outer.position.y = 0.002; scene.add(outer);
+const fine = new THREE.GridHelper(N, N, lin(0x0e2c38), lin(0x0e2c38)); fine.material.transparent = true; fine.material.opacity = .45; fine.position.y = 0.006; scene.add(fine);
+const major = new THREE.GridHelper(N, N / 8, lin(0x2a8fab), lin(0x1a5d72)); major.position.y = 0.01; scene.add(major);
 
-const borderMat = new THREE.MeshBasicMaterial({color:0x39e6ff, transparent:true, opacity:.07, side:THREE.DoubleSide, depthWrite:false});
-const edgeMat = new THREE.MeshBasicMaterial({color:0x8ff3ff});
+const borderMat = new THREE.MeshBasicMaterial({color:lin(0x39e6ff), transparent:true, opacity:.07, side:THREE.DoubleSide, depthWrite:false});
+const edgeMat = new THREE.MeshBasicMaterial({color:lin(0x8ff3ff), toneMapped:false});
 [[0,-H,0],[0,H,0],[-H,0,1],[H,0,1]].forEach(([x,z,r]) => {
   const w = new THREE.Mesh(new THREE.PlaneGeometry(N, 3.2), borderMat);
   w.position.set(x, 1.6, z); if (r) w.rotation.y = Math.PI / 2; scene.add(w);
@@ -69,14 +67,15 @@ const edgeMat = new THREE.MeshBasicMaterial({color:0x8ff3ff});
   gr.addColorStop(0,'rgba(5,7,13,0)'); gr.addColorStop(.55,'rgba(40,40,120,.18)');
   gr.addColorStop(.85,'rgba(57,200,255,.35)'); gr.addColorStop(1,'rgba(57,230,255,.05)');
   g.fillStyle = gr; g.fillRect(0,0,4,256);
-  const m = new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(c), transparent:true, side:THREE.BackSide, fog:false, depthWrite:false});
+  const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
+  const m = new THREE.MeshBasicMaterial({map:tex, transparent:true, side:THREE.BackSide, fog:false, depthWrite:false});
   const cyl = new THREE.Mesh(new THREE.CylinderGeometry(520, 520, 160, 48, 1, true), m);
   cyl.position.y = 58; scene.add(cyl);
 })();
 
 (function towers(){
-  const n = 80, body = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:0x07101a}), n);
-  const cap = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:0x1f6d86, fog:false}), n);
+  const n = 80, body = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:lin(0x07101a)}), n);
+  const cap = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:lin(0x1f6d86), fog:false}), n);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, r = 170 + Math.random() * 240;
@@ -185,14 +184,14 @@ function buildRiders(roster){
   });
   bikes = [];
   roster.forEach((p, i) => {
-    const r = RIDERS[i], col = new THREE.Color(r.color), mesh = createRiderVisual(r.color);
+    const r = RIDERS[i], col = lin(r.color), mesh = createRiderVisual(r.color);
     mesh.group.visible = false; scene.add(mesh.group);
     bikes.push({id:i, r, name:String(p.name || r.name).toUpperCase(), ai:!!p.bot, remote:!!p.remote, gone:false,
       mesh, segs:[], pos:new THREE.Vector3(), vpos:new THREE.Vector3(), alive:false, cleared:true, nt:0, k:0, local:[], gq:[], sched:[], queue:[],
       cx:H, cz:H, dir:0, p:0, mul:1, energy:.35, grind:0, vyaw:0, lean:0, snapT:0, lastLocalK:-1, localT:0,
       hist:new Int16Array(HIST * 2),
       wallMat:new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.55, depthWrite:false, side:THREE.DoubleSide}),
-      capMat:new THREE.MeshBasicMaterial({color:col.clone().lerp(new THREE.Color(0xffffff), .5), transparent:true, opacity:1}),
+      capMat:new THREE.MeshBasicMaterial({color:col.clone().lerp(new THREE.Color(0xffffff), .5), transparent:true, opacity:1, toneMapped:false}),
       floorMat:new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.16, blending:THREE.AdditiveBlending, depthWrite:false}),
       rgb:[(r.color >> 16) & 255, (r.color >> 8) & 255, r.color & 255]});
   });
@@ -473,8 +472,8 @@ function syncSegs(b){
 
 /* ---------- Crash particles ---------- */
 const bursts = [];
-function explode(x, z, color){
-  const n = 280, pos = new Float32Array(n * 3), vel = new Float32Array(n * 3);
+function explode(x, z, hex){
+  const color = lin(hex), n = Math.round(280 * pipe.particleScale), pos = new Float32Array(n * 3), vel = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     pos[i*3] = x + (Math.random() - .5) * 1.6; pos[i*3+1] = .4 + Math.random() * .8; pos[i*3+2] = z + (Math.random() - .5) * 1.6;
     const a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 13;
@@ -486,7 +485,10 @@ function explode(x, z, color){
   ring.rotation.x = -Math.PI / 2; ring.position.set(x, .06, z);
   scene.add(points, ring); bursts.push({points, ring, vel, t:0});
 }
-function killBurst(b){ scene.remove(b.points, b.ring); b.points.geometry.dispose(); b.ring.geometry.dispose(); }
+function killBurst(b){
+  scene.remove(b.points, b.ring);
+  b.points.geometry.dispose(); b.ring.geometry.dispose(); b.points.material.dispose(); b.ring.material.dispose();
+}
 function updateBursts(dt){
   for (let j = bursts.length - 1; j >= 0; j--) {
     const b = bursts[j]; b.t += dt;
@@ -718,7 +720,8 @@ function introCam(){
 function updateCamera(dt){
   if (state === 'demo' || state === 'wait') {
     orbitT += dt * .06;
-    tmpA.set(Math.cos(orbitT) * 96, 42, Math.sin(orbitT) * 96); tmpB.set(0, 0, 0);
+    const O = VC.camera.orbit;
+    tmpA.set(Math.cos(orbitT) * O.radius, O.height, Math.sin(orbitT) * O.radius); tmpB.set(0, 0, 0);
     camPos.lerp(tmpA, 1 - Math.exp(-dt * 2)); camLook.lerp(tmpB, 1 - Math.exp(-dt * 2));
     camera.position.copy(camPos); camera.lookAt(camLook); return;
   }
@@ -871,15 +874,16 @@ cv.addEventListener('pointerup', () => { if (swipe && !swipe.done) trySkip(); sw
 cv.addEventListener('pointercancel', () => { swipe = null; });
 
 addEventListener('resize', () => {
-  renderer.setSize(innerWidth, innerHeight);
+  pipe.resize();
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
 });
 
 /* ---------- Loop ---------- */
 let last = performance.now();
+const glowSlots = RIDERS.map(() => ({pos:null, colorHex:0, on:false}));
 function frame(now){
   requestAnimationFrame(frame);
-  const real = Math.min(.05, (now - last) / 1000); last = now;
+  const raw = (now - last) / 1000, real = Math.min(.05, raw); last = now;
   const dt = paused ? 0 : real;
   if (state === 'countdown') {
     cd -= dt;
@@ -916,7 +920,12 @@ function frame(now){
   const pl = player && player.alive;
   SFX.mood(paused ? .15 : state === 'run' ? (pl ? 1 : .6) : state === 'countdown' ? .55 : state === 'over' ? .5 : .25);
   SFX.engine(state === 'run' && pl && !paused ? 1 : (state === 'countdown' && !paused ? .45 : 0), player ? player.mul : 1);
-  renderer.render(scene, camera);
+  // Lights follow the local rider (or the arena centre during the attract demo)
+  const focus = state === 'demo' || !player ? bikes[0] : player;
+  if (focus) pipe.follow(state === 'demo' ? camLook : focus.vpos, focus.r.color);
+  glowSlots.forEach((g, i) => { const b = bikes[i]; g.on = !!b && b.alive; if (g.on) { g.pos = b.vpos; g.colorHex = b.r.color; } });
+  pipe.setGlows(glowSlots);
+  pipe.render(raw, pl && state === 'run' ? (player.mul - 1) / .7 : 0);
 }
 ['pointerdown', 'keydown'].forEach(t => addEventListener(t, () => SFX.init(), {once:true}));
 startDemo();
@@ -926,6 +935,8 @@ export const Game = {
   hooks, startSolo, startOnline, toDemo:() => { setMsg('', ''); startDemo(); },
   remoteTurn, remoteBoost, removeRider, applySnapshot, addTurnPoint,
   initAudio:() => SFX.init(),
+  setQuality:q => { const l = pipe.setQuality(q); try { localStorage.setItem('pr-quality', l); } catch (e) {} return l; },
+  get quality(){ return pipe.quality; },
   debug:() => ({state, round, mode, me, scores:scores.slice(), bikes:bikes.map(b => ({name:b.name, cx:b.cx, cz:b.cz, dir:b.dir, k:b.k, nt:b.nt, alive:b.alive, segs:b.segs.length}))}),
   get state(){ return state; },
   get mode(){ return mode; }

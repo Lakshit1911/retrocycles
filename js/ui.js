@@ -218,6 +218,7 @@ function renderSettings(){
   $('botsVal').textContent = bots;
   qa('#diffSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.d === diff)));
   qa('#winSeg button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.w === win)));
+  qa('#qualitySeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === Game.quality)));
   $('diffHint').textContent = DIFF[diff].hint;
   $('settingsBlock').classList.toggle('locked', !!view);
 }
@@ -235,6 +236,12 @@ $('botsMinus').addEventListener('click', () => stepBots(-1));
 $('botsPlus').addEventListener('click', () => stepBots(1));
 qa('#diffSeg button').forEach(b => b.addEventListener('click', () => { settings.diff = b.dataset.d; changed(); }));
 qa('#winSeg button').forEach(b => b.addEventListener('click', () => { settings.win = +b.dataset.w; changed(); }));
+// Graphics quality is per device, so it never goes into the room settings
+qa('#qualitySeg button').forEach(b => b.addEventListener('click', () => { Game.setQuality(b.dataset.q); renderSettings(); }));
+Game.hooks.quality = (q, auto) => {
+  renderSettings();
+  if (auto) toast(`Graphics lowered to ${q[0].toUpperCase() + q.slice(1)} to keep the frame rate smooth`);
+};
 
 /* ---------- Solo ---------- */
 $('ride').addEventListener('click', () => {

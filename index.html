@@ -211,6 +211,10 @@
         <div><div class="label">Rounds to win</div><div class="hint">First rider to this many takes the match</div></div>
         <div class="seg cut" id="winSeg"><button data-w="3">3</button><button data-w="5">5</button><button data-w="7">7</button></div>
       </div>
+      <div class="row device">
+        <div><div class="label">Graphics</div><div class="hint" id="qualityHint">This device only: shadows, bloom, resolution</div></div>
+        <div class="seg cut" id="qualitySeg"><button data-q="low">Low</button><button data-q="medium">Medium</button><button data-q="high">High</button></div>
+      </div>
     </div>
 
   </div>
@@ -219,6 +223,15 @@
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<!-- three.js r128 add-ons, vendored so they always match the core version -->
+<script src="js/vendor/three-r128/CopyShader.js"></script>
+<script src="js/vendor/three-r128/LuminosityHighPassShader.js"></script>
+<script src="js/vendor/three-r128/GammaCorrectionShader.js"></script>
+<script src="js/vendor/three-r128/EffectComposer.js"></script>
+<script src="js/vendor/three-r128/RenderPass.js"></script>
+<script src="js/vendor/three-r128/ShaderPass.js"></script>
+<script src="js/vendor/three-r128/UnrealBloomPass.js"></script>
+<script src="js/vendor/three-r128/RoomEnvironment.js"></script>
 <script type="module" src="js/ui.js"></script>
 </body>
 </html>

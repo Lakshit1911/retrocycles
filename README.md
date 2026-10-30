@@ -11,6 +11,8 @@ js/game.js               engine: scene, riders, sim, audio, HUD, camera, netcode
 js/vanta.js              the Vanta Phantom vehicle model (createVanta)
 js/visuals/config.js     VISUAL_CONFIG: every tunable number for the look
 js/visuals/riders.js     per-rider Phantom, eased turns, banking, disposal
+js/visuals/renderer.js   renderer, colour pipeline, reflections, lights, fog, bloom, quality levels
+js/vendor/three-r128/    pinned three.js r128 add-ons (EffectComposer, bloom, RoomEnvironment)
 js/ui.js                 screens, sign-in, host/join flow, leaderboard
 js/net.js                Realtime Database rooms (host / join / inputs / snapshots)
 js/firebase.js           Firebase auth, rider profiles, stats

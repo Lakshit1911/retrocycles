@@ -27,10 +27,36 @@ export const VISUAL_CONFIG = {
   wall: {
     height:0.5           // 0.9 m at vehicle scale
   },
+  render: {
+    exposure:1.0,          // ACES Filmic tone mapping exposure
+    envBlur:0.04,          // RoomEnvironment PMREM sigma
+    envRoomShade:0.025,    // darken RoomEnvironment's walls so reflections are night-showroom: black with light strips
+    envLightScale:0.7,     // its light panels
+    floorColor:'#06070a', floorMetalness:0.55, floorRoughness:0.5, floorEnv:0.3
+  },
+  // Exponential fog in world units (1 unit = 1 cell = ~1.8 m at vehicle scale), so the far
+  // half of the 128-cell arena melts into darkness while the near field stays crisp
+  fog: {density:0.011},
+  bloom: {strength:0.85, radius:0.55, threshold:0.78, boostExtra:0.45},
+  lights: {
+    hemi:{sky:'#3b4a6b', ground:'#050609', intensity:0.32},
+    key:{color:'#d6e2ff', intensity:0.8, offset:[-14, 26, 12], extent:12, near:1, far:80, bias:-0.0006},
+    rim:{intensity:0.75, offset:[11, 5, -15]},
+    glow:{intensity:2.4, distance:5.5, decay:2, height:0.35}   // pooled point light under each rider
+  },
+  quality: {
+    // pixelRatio cap, shadow map size (0 = off), bloom resolution scale (0 = no bloom pass),
+    // MSAA samples on the bloom render target (WebGL2 only), particle count scale
+    high:  {pixelRatio:2,   shadows:2048, bloomScale:1,   msaa:4, particles:1},
+    medium:{pixelRatio:1.5, shadows:1024, bloomScale:0.6, msaa:2, particles:0.6},
+    low:   {pixelRatio:1,   shadows:0,    bloomScale:0,   msaa:0, particles:0.35}
+  },
+  autoQuality: {minFps:45, seconds:3, graceSeconds:4},
   camera: {
     // chase: cells behind / above the craft, and how far ahead it looks
     chase:{back:5.6, height:2.3, ahead:8, lookHeight:0.5, follow:7},
     cockpit:{height:1.0, ahead:25},
-    overhead:{height:72, back:30}
+    overhead:{height:72, back:30},
+    orbit:{radius:66, height:30}   // attract-mode flyover behind the menus
   }
 };
