@@ -31,8 +31,21 @@ export const VISUAL_CONFIG = {
     exposure:1.0,          // ACES Filmic tone mapping exposure
     envBlur:0.04,          // RoomEnvironment PMREM sigma
     envRoomShade:0.025,    // darken RoomEnvironment's walls so reflections are night-showroom: black with light strips
-    envLightScale:0.7,     // its light panels
-    floorColor:'#06070a', floorMetalness:0.55, floorRoughness:0.5, floorEnv:0.3
+    envLightScale:0.7      // its light panels
+  },
+  arena: {
+    // Obsidian floor; panel = cells per floor panel (seams and the brighter grid line)
+    floor:{color:'#06070a', seam:'#11141b', panel:8, metalness:0.55, roughness:0.38, env:0.3},
+    grid:{line:'#1d222c', major:'#2b3242', opacity:0.7},
+    // Perimeter: matte dark metal, one thin emissive top line, light ripples when riders come near
+    wall:{height:3.5, thickness:0.6, color:'#0b0d12', edge:'#c9d3e6', edgeIntensity:1.4,
+      rippleReach:7, rippleWidth:30, rippleIntensity:0.55},
+    sky:{horizon:'#141a33', silhouette:'#07080d', strip:'#7f98c9', stripWarm:'#c99a6a', stripOpacity:0.5,
+      stripChance:0.3, stripThickness:0.14, towerHeight:[16, 80], archRadius:[38, 70],
+      beacon:'#ff4a55', towers:70, arches:4, pylons:10, radius:[220, 480],
+      beams:[[0.8, 260, 0], [3.6, 300, 2.1]], beam:'#9fb7ff', beamIntensity:0.09, beamSpeed:0.12},
+    dust:{count:420, box:28, height:7, size:0.09, opacity:0.35, color:'#8ea3c9', drift:0.35},
+    pulses:{count:4, length:7, width:0.12, speed:9, opacity:0.55, color:'#5b7fb8', gap:9}
   },
   // Exponential fog in world units (1 unit = 1 cell = ~1.8 m at vehicle scale), so the far
   // half of the 128-cell arena melts into darkness while the near field stays crisp
@@ -41,7 +54,7 @@ export const VISUAL_CONFIG = {
   lights: {
     hemi:{sky:'#3b4a6b', ground:'#050609', intensity:0.32},
     key:{color:'#d6e2ff', intensity:0.8, offset:[-14, 26, 12], extent:12, near:1, far:80, bias:-0.0006},
-    rim:{intensity:0.75, offset:[11, 5, -15]},
+    rim:{intensity:2.2, offset:[4.5, 3.5, -5.5], distance:14, angle:0.38, penumbra:0.9, decay:1.5},
     glow:{intensity:2.4, distance:5.5, decay:2, height:0.35}   // pooled point light under each rider
   },
   quality: {

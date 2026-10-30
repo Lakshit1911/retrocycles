@@ -50,7 +50,8 @@ export function createPipeline({mount, scene, camera, quality, onAutoDrop}){
   Object.assign(key.shadow.camera, {left:-L.key.extent, right:L.key.extent, top:L.key.extent, bottom:-L.key.extent, near:L.key.near, far:L.key.far});
   key.shadow.camera.updateProjectionMatrix();
   key.shadow.bias = L.key.bias;
-  const rim = new THREE.DirectionalLight(0xffffff, L.rim.intensity);
+  // Rim: a tight spot on the local rider, so its colour catches the craft without washing the glossy floor
+  const rim = new THREE.SpotLight(0xffffff, L.rim.intensity, L.rim.distance, L.rim.angle, L.rim.penumbra, L.rim.decay);
   scene.add(hemi, key, key.target, rim, rim.target);
   // A fixed pool keeps the light count constant, so riders joining or leaving never recompile shaders
   const glows = Array.from({length:VC.riders.length}, () => {

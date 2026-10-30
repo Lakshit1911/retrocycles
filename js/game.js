@@ -8,6 +8,7 @@ import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, headingYaw } from './visuals/riders.js';
 import { createPipeline, lin, defaultQuality } from './visuals/renderer.js';
 import { SFX } from './audio.js';
+import { createArena } from './visuals/arena.js';
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const N = 128, H = N / 2, WALL_H = VC.wall.height, T = 0.16, BASE = 15;
@@ -44,49 +45,8 @@ const pipe = createPipeline({mount:$('stage'), scene, camera, quality:savedQuali
   onAutoDrop:q => hooks.quality && hooks.quality(q, true)});
 const renderer = pipe.renderer;
 
-const floor = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshStandardMaterial({
-  color:lin(VC.render.floorColor), metalness:VC.render.floorMetalness, roughness:VC.render.floorRoughness, envMapIntensity:VC.render.floorEnv}));
-floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
-const outer = new THREE.GridHelper(640, 80, lin(0x0c2330), lin(0x0c2330)); outer.position.y = 0.002; scene.add(outer);
-const fine = new THREE.GridHelper(N, N, lin(0x0e2c38), lin(0x0e2c38)); fine.material.transparent = true; fine.material.opacity = .45; fine.position.y = 0.006; scene.add(fine);
-const major = new THREE.GridHelper(N, N / 8, lin(0x2a8fab), lin(0x1a5d72)); major.position.y = 0.01; scene.add(major);
-
-const borderMat = new THREE.MeshBasicMaterial({color:lin(0x39e6ff), transparent:true, opacity:.07, side:THREE.DoubleSide, depthWrite:false});
-const edgeMat = new THREE.MeshBasicMaterial({color:lin(0x8ff3ff), toneMapped:false});
-[[0,-H,0],[0,H,0],[-H,0,1],[H,0,1]].forEach(([x,z,r]) => {
-  const w = new THREE.Mesh(new THREE.PlaneGeometry(N, 3.2), borderMat);
-  w.position.set(x, 1.6, z); if (r) w.rotation.y = Math.PI / 2; scene.add(w);
-  [3.2, 0.03].forEach(y => {
-    const e = new THREE.Mesh(new THREE.BoxGeometry(N + .1, .07, .07), edgeMat);
-    e.position.set(x, y, z); if (r) e.rotation.y = Math.PI / 2; scene.add(e);
-  });
-});
-
-(function horizon(){
-  const c = document.createElement('canvas'); c.width = 4; c.height = 256;
-  const g = c.getContext('2d'); const gr = g.createLinearGradient(0,0,0,256);
-  gr.addColorStop(0,'rgba(5,7,13,0)'); gr.addColorStop(.55,'rgba(40,40,120,.18)');
-  gr.addColorStop(.85,'rgba(57,200,255,.35)'); gr.addColorStop(1,'rgba(57,230,255,.05)');
-  g.fillStyle = gr; g.fillRect(0,0,4,256);
-  const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding;
-  const m = new THREE.MeshBasicMaterial({map:tex, transparent:true, side:THREE.BackSide, fog:false, depthWrite:false});
-  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(520, 520, 160, 48, 1, true), m);
-  cyl.position.y = 58; scene.add(cyl);
-})();
-
-(function towers(){
-  const n = 80, body = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:lin(0x07101a)}), n);
-  const cap = new THREE.InstancedMesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:lin(0x1f6d86), fog:false}), n);
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
-  for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, r = 170 + Math.random() * 240;
-    const w = 6 + Math.random() * 16, h = 14 + Math.random() * 80;
-    q.setFromAxisAngle(new THREE.Vector3(0,1,0), Math.random() * Math.PI);
-    p.set(Math.cos(a) * r, h / 2, Math.sin(a) * r); s.set(w, h, w); m.compose(p, q, s); body.setMatrixAt(i, m);
-    p.y = h + .2; s.set(w * .96, .35, w * .96); m.compose(p, q, s); cap.setMatrixAt(i, m);
-  }
-  scene.add(body, cap);
-})();
+// Floor, perimeter, skyline and ambient detail (js/visuals/arena.js)
+const arena = createArena(scene, N);
 
 /* ---------- Grid occupancy ---------- */
 const grid = new Int8Array(N * N), stamp = new Uint32Array(N * N); let stampId = 1;
@@ -763,6 +723,7 @@ function frame(now){
   if (focus) pipe.follow(state === 'demo' ? camLook : focus.vpos, focus.r.color);
   glowSlots.forEach((g, i) => { const b = bikes[i]; g.on = !!b && b.alive; if (g.on) { g.pos = b.vpos; g.colorHex = b.r.color; } });
   pipe.setGlows(glowSlots);
+  arena.update(dt, glowSlots, camera.position, pipe.particleScale);
   pipe.render(raw, pl && state === 'run' ? (player.mul - 1) / .7 : 0);
 }
 ['pointerdown', 'keydown'].forEach(t => addEventListener(t, () => SFX.init(), {once:true}));
