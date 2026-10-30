@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#05070d">
+<meta name="description" content="Retrocycles 3D: a neon light cycle arena. Race AI rivals or host an online grid with a 5-character code.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Retrocycles 3D</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2305070d'/%3E%3Cpath d='M8 48h20V24h28' fill='none' stroke='%2339e6ff' stroke-width='6'/%3E%3Ccircle cx='56' cy='24' r='5' fill='%23ff9d2e'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,500;0,700;1,700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="stage"></div>
+
+<!-- ============ In-race HUD ============ -->
+<div class="hud" id="hud" hidden>
+  <div class="top">
+    <div class="status">
+      <div class="tag" id="aliveLabel">4 / 4 riders</div>
+      <div class="round-row">
+        <div class="round" id="roundLabel">ROUND 1</div>
+        <button class="hud-btn cut" id="menuBtn" aria-label="Open menu">II</button>
+        <button class="hud-btn cut" id="camBtn" aria-label="Change camera">CAM</button>
+        <button class="hud-btn cut" data-mute aria-pressed="false" aria-label="Toggle sound">♪</button>
+      </div>
+      <div class="tag" id="winLabel">First to 5 rounds</div>
+    </div>
+    <div class="board" id="board"></div>
+  </div>
+  <div class="center"><div><div id="msg"></div><div id="sub"></div></div></div>
+  <div class="bottom">
+    <canvas id="radar" width="128" height="128" aria-label="Arena radar"></canvas>
+    <div class="gauge">
+      <div class="speed"><span id="spd">165</span><span class="unit">km/h</span></div>
+      <div class="meter cut"><div id="nrg"></div></div>
+      <div class="meter-row"><span class="tag">Boost charge</span><span class="tag" id="slip">Slipstream</span></div>
+    </div>
+    <div class="hints tag"><div><b>C</b> camera · <span id="camLabel">Chase</span></div><div><b>P</b> menu · <b>M</b> <span id="muteLabel">sound on</span></div></div>
+  </div>
+</div>
+
+<div class="touch" id="touch" hidden>
+  <button id="tL" class="cut" aria-label="Turn left">◀</button>
+  <button id="tB" class="cut boost" aria-label="Boost">BOOST</button>
+  <button id="tR" class="cut" aria-label="Turn right">▶</button>
+</div>
+
+<div class="pausebox" id="pausebox" hidden>
+  <div class="pausecard">
+    <div class="big" id="pauseTitle">PAUSED</div>
+    <div class="tag" id="pauseHint">Press P or tap Resume</div>
+    <div class="pause-actions">
+      <button class="ride cut" id="resumeBtn">RESUME</button>
+      <button class="ghost cut" id="quitBtn">QUIT MATCH</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Menus ============ -->
+<div class="menu" id="menu">
+  <div class="scan" aria-hidden="true"></div>
+  <button class="corner-btn cut" data-mute aria-pressed="false" aria-label="Toggle sound">♪ SOUND</button>
+  <div class="card">
+
+    <div class="result cut" id="result" hidden></div>
+
+    <!-- Title -->
+    <section class="screen title-screen" data-screen="title">
+      <pre class="boot tag" id="bootLog" aria-hidden="true"></pre>
+      <div class="title-block">
+        <div class="tag eyebrow">Light cycle arena · 128 × 128 grid</div>
+        <h1 class="logo"><span class="outline">RETRO</span><span class="fill">CYCLES</span><sup>3D</sup></h1>
+        <div class="trail" aria-hidden="true"><i></i></div>
+        <p class="lede">Every turn leaves a wall of light behind you. Box in your rivals, ride close to walls to charge your boost, and be the last cycle still running.</p>
+      </div>
+      <button class="ride cut press" id="pressStart">PRESS START</button>
+      <div class="tag foot">Online grids · 5-char codes · up to 6 riders</div>
+    </section>
+
+    <!-- Auth -->
+    <section class="screen" data-screen="auth" hidden>
+      <div>
+        <div class="tag eyebrow">Identity disc</div>
+        <h2>Who's riding?</h2>
+      </div>
+      <div class="seg tabs cut" role="tablist">
+        <button data-auth="in" aria-pressed="true">Sign in</button>
+        <button data-auth="up" aria-pressed="false">Create ID</button>
+      </div>
+      <form class="form" id="authForm" novalidate>
+        <label class="field" id="nameField" hidden><span>Rider name</span><input id="fName" maxlength="12" autocomplete="nickname" placeholder="e.g. FLYNN" spellcheck="false"></label>
+        <label class="field"><span>Email</span><input id="fEmail" type="email" autocomplete="email" inputmode="email" placeholder="you@grid.net" spellcheck="false"></label>
+        <label class="field"><span>Password</span><input id="fPw" type="password" autocomplete="current-password" placeholder="6+ characters"></label>
+        <div class="err" id="authErr" role="alert"></div>
+        <button class="ride cut" type="submit" id="authGo">ENTER THE GRID</button>
+      </form>
+      <div class="or tag"><span>or</span></div>
+      <button class="ghost cut google" id="googleBtn" type="button">
+        <svg viewBox="0 0 48 48" width="20" height="20" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+        <span>Continue with Google</span>
+      </button>
+      <div class="links">
+        <button class="link" id="forgotBtn" type="button">Forgot password?</button>
+        <button class="link" id="guestBtn" type="button">Ride as guest (solo only) →</button>
+      </div>
+    </section>
+
+    <!-- Home -->
+    <section class="screen" data-screen="home" hidden>
+      <div>
+        <div class="tag eyebrow" id="homeEyebrow">Rider online</div>
+        <h1 class="logo sm"><span class="outline">RETRO</span><span class="fill">CYCLES</span><sup>3D</sup></h1>
+        <p class="lede" id="homeLede">Pick your grid.</p>
+      </div>
+      <div class="tiles">
+        <button class="tile cut" data-go="solo"><b>SOLO</b><span>Race AI rivals</span></button>
+        <button class="tile cut" data-go="host"><b>HOST</b><span>Open a grid, share the code</span></button>
+        <button class="tile cut" data-go="join"><b>JOIN</b><span>Enter a 5-character code</span></button>
+        <button class="tile cut" data-go="board"><b>RANKS</b><span>Leaderboard</span></button>
+      </div>
+      <div class="who">
+        <span class="tag" id="whoami">Guest rider</span>
+        <span class="who-actions">
+          <button class="link" id="renameBtn" type="button" hidden>Rename</button>
+          <button class="link" id="authBtn" type="button">Sign in</button>
+        </span>
+      </div>
+    </section>
+
+    <!-- Solo setup -->
+    <section class="screen" data-screen="solo" hidden>
+      <div>
+        <button class="link back" data-back="home">← Back</button>
+        <div class="tag eyebrow">Solo grid</div>
+        <h2>Race the machines</h2>
+      </div>
+      <div data-slot="settings"></div>
+      <button class="ride cut" id="ride">RIDE</button>
+      <div class="keys">
+        <div><span>Turn 90°</span><span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></span></div>
+        <div><span>Boost</span><span><kbd>Space</kbd> / <kbd>W</kbd></span></div>
+        <div><span>Camera</span><kbd>C</kbd></div>
+        <div><span>Menu / Sound</span><span><kbd>P</kbd> <kbd>M</kbd></span></div>
+        <div><span>Charge boost</span><span>ride beside a wall</span></div>
+        <div><span>Phone</span><span>buttons or swipe</span></div>
+      </div>
+    </section>
+
+    <!-- Join -->
+    <section class="screen" data-screen="join" hidden>
+      <div>
+        <button class="link back" data-back="home">← Back</button>
+        <div class="tag eyebrow">Join a grid</div>
+        <h2>Enter the grid code</h2>
+      </div>
+      <form class="form" id="joinForm" novalidate>
+        <input class="code-input" id="joinCode" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="•••••" aria-label="5-character grid code">
+        <div class="err" id="joinErr" role="alert"></div>
+        <button class="ride cut" type="submit" id="joinGo" disabled>JOIN GRID</button>
+      </form>
+      <p class="hint">Codes are 5 characters, letters and digits. Ask the host to read theirs out or tap Share.</p>
+    </section>
+
+    <!-- Lobby -->
+    <section class="screen" data-screen="lobby" hidden>
+      <div class="lobby-head">
+        <div>
+          <div class="tag eyebrow" id="lobbyEyebrow">Grid code</div>
+          <div class="code" id="roomCode">-----</div>
+        </div>
+        <button class="ghost cut" id="shareBtn" type="button">SHARE</button>
+      </div>
+      <div class="slots" id="slots"></div>
+      <div data-slot="settings"></div>
+      <div class="hint" id="lobbyNote"></div>
+      <button class="ride cut" id="startMatch">START MATCH</button>
+      <button class="link" id="leaveRoom" type="button">Leave grid</button>
+    </section>
+
+    <!-- Leaderboard -->
+    <section class="screen" data-screen="board" hidden>
+      <div>
+        <button class="link back" data-back="home">← Back</button>
+        <div class="tag eyebrow">Hall of light</div>
+        <h2>Leaderboard</h2>
+      </div>
+      <div class="seg tabs cut">
+        <button data-lb="wins" aria-pressed="true">Online wins</button>
+        <button data-lb="soloWins" aria-pressed="false">Solo wins</button>
+      </div>
+      <ol class="ranks" id="ranks"></ol>
+    </section>
+
+    <!-- Shared settings block, moved between Solo and Lobby -->
+    <div class="settings" id="settingsBlock">
+      <div class="row">
+        <div><div class="label">AI rivals</div><div class="hint" id="botsHint">Bots sharing the arena</div></div>
+        <div class="stepper cut"><button id="botsMinus" aria-label="Fewer rivals">−</button><output id="botsVal">3</output><button id="botsPlus" aria-label="More rivals">+</button></div>
+      </div>
+      <div class="row">
+        <div><div class="label">Rival skill</div><div class="hint" id="diffHint">Reads the arena and hunts you now and then</div></div>
+        <div class="seg cut" id="diffSeg"><button data-d="rookie">Rookie</button><button data-d="rider">Rider</button><button data-d="legend">Legend</button></div>
+      </div>
+      <div class="row">
+        <div><div class="label">Rounds to win</div><div class="hint">First rider to this many takes the match</div></div>
+        <div class="seg cut" id="winSeg"><button data-w="3">3</button><button data-w="5">5</button><button data-w="7">7</button></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script type="module" src="js/ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+/* Firebase: auth (email/password + Google), rider profiles, match stats and leaderboard. */
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {
+  getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, updateProfile,
+  signOut, sendPasswordResetEmail
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import {
+  getDatabase, ref, child, get, set, update, remove, push, onValue, onChildAdded,
+  onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast
+} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+import { firebaseConfig } from './config.js';
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getDatabase(app);
+export { ref, child, get, set, update, remove, push, onValue, onChildAdded, onDisconnect, serverTimestamp };
+
+export const cleanName = s => String(s || '').replace(/[^\p{L}\p{N} _.\-]/gu, '').trim().slice(0, 12) || 'RIDER';
+
+const ERRORS = {
+  'auth/invalid-credential': 'Email or password does not match.',
+  'auth/wrong-password': 'Email or password does not match.',
+  'auth/user-not-found': 'No rider with that email yet. Create an ID instead.',
+  'auth/email-already-in-use': 'That email already has a rider. Sign in instead.',
+  'auth/invalid-email': 'That email address looks off.',
+  'auth/weak-password': 'Password needs at least 6 characters.',
+  'auth/missing-password': 'Enter your password.',
+  'auth/too-many-requests': 'Too many tries. Give it a minute and try again.',
+  'auth/network-request-failed': 'Network hiccup. Check your connection.',
+  'auth/popup-closed-by-user': 'Google sign-in was closed before it finished.',
+  'auth/cancelled-popup-request': 'Google sign-in was closed before it finished.',
+  'auth/unauthorized-domain': 'This site is not on the Firebase authorized domains list yet.',
+  'auth/operation-not-allowed': 'That sign-in method is not switched on in Firebase yet.'
+};
+export const authError = e => ERRORS[e && e.code] || (e && e.message) || 'Something went wrong.';
+
+export const onAuth = fn => onAuthStateChanged(auth, fn);
+export const logOut = () => signOut(auth);
+export const resetPassword = email => sendPasswordResetEmail(auth, email);
+export const signIn = (email, pw) => signInWithEmailAndPassword(auth, email, pw);
+export async function signUp(name, email, pw){
+  const { user } = await createUserWithEmailAndPassword(auth, email, pw);
+  const n = cleanName(name);
+  await updateProfile(user, {displayName:n});
+  await ensureProfile(user, n);
+  await set(ref(db, `users/${user.uid}/name`), n);   // wins any race with the auth listener's profile write
+  return user;
+}
+export async function signInGoogle(){
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({prompt:'select_account'});
+  try { return await signInWithPopup(auth, provider); }
+  catch (e) {
+    if (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') return signInWithRedirect(auth, provider);
+    throw e;
+  }
+}
+export const redirectResult = () => getRedirectResult(auth);
+
+/* users/{uid}: public rider card. Only the name and stats live here, never the email. */
+export async function ensureProfile(user, name){
+  const r = ref(db, `users/${user.uid}`);
+  const snap = await get(r);
+  if (snap.exists() && snap.val().name) return snap.val();
+  const fallback = name || user.displayName || (user.email || '').split('@')[0];
+  const fresh = {name:cleanName(fallback), wins:0, matches:0, rounds:0, soloWins:0, soloMatches:0};
+  await set(r, fresh);
+  return fresh;
+}
+export async function renameRider(uid, name){
+  const n = cleanName(name);
+  await update(ref(db, `users/${uid}`), {name:n});
+  if (auth.currentUser) await updateProfile(auth.currentUser, {displayName:n}).catch(() => {});
+  return n;
+}
+export function recordMatch(uid, name, s){
+  return runTransaction(ref(db, `users/${uid}`), u => {
+    u = u || {};
+    u.name = cleanName(name);
+    for (const k of ['wins', 'matches', 'rounds', 'soloWins', 'soloMatches']) u[k] = u[k] || 0;
+    if (s.online) { u.matches++; u.rounds += Math.min(s.roundsWon, 7); if (s.won) u.wins++; }
+    else { u.soloMatches++; if (s.won) u.soloWins++; }
+    return u;
+  });
+}
+export async function topRiders(field){
+  const snap = await get(query(ref(db, 'users'), orderByChild(field), limitToLast(20)));
+  const rows = [];
+  snap.forEach(c => { const v = c.val(); if ((v[field] || 0) > 0) rows.push({uid:c.key, ...v}); });
+  return rows.reverse();
+}
