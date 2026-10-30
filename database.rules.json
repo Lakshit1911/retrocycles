@@ -12,6 +12,7 @@
         "soloWins": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= (data.exists() ? data.val() : 0) + 1" },
         "soloMatches": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= (data.exists() ? data.val() : 0) + 1" },
         "rounds": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= (data.exists() ? data.val() : 0) + 7" },
+        "color": { ".validate": "newData.isString() && newData.val().matches(/^(crimson|ion|solar|venom|violet|platinum)$/)" },
         "$other": { ".validate": false }
       }
     },
@@ -22,7 +23,8 @@
         "players": {
           "$uid": {
             ".write": "auth != null && auth.uid === $uid && data.parent().parent().child('host').exists() && (data.exists() || !newData.exists() || data.parent().parent().child('status').val() === 'lobby')",
-            ".validate": "newData.hasChildren(['name', 't']) && newData.child('name').isString() && newData.child('name').val().length <= 12"
+            ".validate": "newData.hasChildren(['name', 't']) && newData.child('name').isString() && newData.child('name').val().length <= 12",
+            "color": { ".validate": "newData.isString() && newData.val().matches(/^(crimson|ion|solar|venom|violet|platinum)$/)" }
           }
         },
         "in": {

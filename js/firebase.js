@@ -79,6 +79,7 @@ export async function renameRider(uid, name){
   if (auth.currentUser) await updateProfile(auth.currentUser, {displayName:n}).catch(() => {});
   return n;
 }
+export const setColor = (uid, key) => update(ref(db, `users/${uid}`), {color:key});
 export function recordMatch(uid, name, s){
   return runTransaction(ref(db, `users/${uid}`), u => {
     u = u || {};

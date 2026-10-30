@@ -1,6 +1,7 @@
 /* Menus and online flow: title screen, sign-in, home, solo setup, host/join lobby, leaderboard.
    Firebase loads lazily, so the solo game still runs if the network or Firebase is unreachable. */
 import { Game, RIDERS, DIFF } from './game.js';
+import { VISUAL_CONFIG as VC } from './visuals/config.js';
 
 const $ = id => document.getElementById(id);
 const qa = (s, el = document) => [...el.querySelectorAll(s)];
@@ -29,10 +30,13 @@ const backFromGoogle = (() => {
 })();
 let pendingJoin = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 
-let settings = {bots:3, obots:2, diff:'rider', win:5};
+let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson'};
 try { const s = JSON.parse(localStorage.getItem('rc3d-settings') || 'null'); if (s) settings = Object.assign(settings, s); } catch (e) {}
 const save = () => { try { localStorage.setItem('rc3d-settings', JSON.stringify(settings)); } catch (e) {} };
 const myName = () => (profile && profile.name) || (user && user.displayName) || 'YOU';
+// Your Phantom's light colour: the Garage pick, saved with your profile when signed in
+const myColor = () => (profile && Game.colourOf(profile.color) && profile.color) || (Game.colourOf(settings.color) && settings.color) || 'crimson';
+const setAccent = key => document.documentElement.style.setProperty('--accent', Game.colourOf(key).css);
 
 /* ---------- Helpers ---------- */
 let toastT = 0;
@@ -53,6 +57,11 @@ async function keepAwake(on){
 
 function show(name, keepResult){
   screen = name;
+  $('menu').dataset.screen = name;
+  // The turntable Phantom shows on the title and in the garage; your colour is the UI accent
+  const key = name === 'garage' ? garagePick : myColor();
+  setAccent(key);
+  Game.showcase(name === 'title' || name === 'garage', Game.colourOf(key).hex, name === 'garage' ? VC.showroom.garageDrop : VC.showroom.drop);
   qa('.screen').forEach(s => s.hidden = s.dataset.screen !== name);
   if (!keepResult) $('result').hidden = true;
   const slot = document.querySelector(`.screen[data-screen="${name}"] [data-slot="settings"]`), blk = $('settingsBlock');
@@ -246,7 +255,7 @@ Game.hooks.quality = (q, auto) => {
 /* ---------- Solo ---------- */
 $('ride').addEventListener('click', () => {
   save(); keepAwake(true);
-  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, name:myName()});
+  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, name:myName(), color:myColor()});
 });
 
 /* ---------- Match end / quit ---------- */
@@ -257,6 +266,7 @@ function showResult(s){
   $('result').innerHTML = `<div class="tag eyebrow">${s.online ? 'Online' : 'Solo'} match · ${s.rounds} rounds</div>
     <h3>${esc(title)}</h3><div class="hint">${pick(s.won ? WIN_QUIPS : LOSS_QUIPS)}</div>
     <div class="rows">${s.table.map(r => `<div class="${r.me ? 'me' : ''}"><i style="background:${r.css}"></i><span>${esc(r.name)}${r.bot ? ' · AI' : ''}${r.me ? ' · you' : ''}</span><b>${r.score}</b></div>`).join('')}</div>`;
+  $('result').style.setProperty('--win', s.winnerCss);
   $('result').hidden = false;
 }
 Game.hooks.end = s => {
@@ -280,7 +290,7 @@ async function hostGrid(){
   const tile = document.querySelector('.tile[data-go="host"]');
   await busy(tile, async () => {
     try {
-      room = await NET.Room.host(user.uid, myName(), cfgOut());
+      room = await NET.Room.host(user.uid, myName(), cfgOut(), myColor());
       watchRoom(); show('lobby');
     } catch (e) { toast('Could not open a grid: ' + (e.message || e)); room = null; }
   });
@@ -300,7 +310,7 @@ $('joinForm').addEventListener('submit', e => {
   if (code.length !== 5) return;
   needAuth(() => busy($('joinGo'), async () => {
     try {
-      room = await NET.Room.join(code, user.uid, myName());
+      room = await NET.Room.join(code, user.uid, myName(), myColor());
       pendingJoin = '';
       if (location.search) history.replaceState(null, '', location.pathname);
       watchRoom(); show('lobby');
@@ -311,8 +321,16 @@ $('joinForm').addEventListener('submit', e => {
 function sortedPlayers(){
   const host = room && (room.isHost ? room.uid : roomView.host);
   return Object.entries(roomView.players || {})
-    .map(([uid, v]) => ({uid, name:(v && v.name) || 'RIDER', t:(v && v.t) || 0}))
+    .map(([uid, v]) => ({uid, name:(v && v.name) || 'RIDER', t:(v && v.t) || 0, color:v && v.color}))
     .sort((a, b) => (b.uid === host) - (a.uid === host) || a.t - b.t);
+}
+/* No two riders share a colour: in join order each rider keeps their Garage pick if it is free,
+   otherwise takes the first free one; AI rivals get what is left. */
+function assignColours(players, bots){
+  const used = new Set(), keys = VC.riders.map(c => c.key), free = () => keys.find(k => !used.has(k));
+  const mine = players.map(p => { const k = keys.includes(p.color) && !used.has(p.color) ? p.color : free(); used.add(k); return k; });
+  const theirs = Array.from({length:bots}, () => { const k = free(); used.add(k); return k; });
+  return {players:mine, bots:theirs};
 }
 function watchRoom(){
   roomView = {players:{}, cfg:{}, status:'lobby', start:null, host:null};
@@ -337,7 +355,7 @@ function watchRoom(){
         for (const k in known) if (!(k in names) && k !== user.uid) toast(`${known[k]} left the grid`);
       }
       known = names;
-      if (!r.isHost && !p[user.uid] && roomView.status === 'lobby') r.reseat(myName());
+      if (!r.isHost && !p[user.uid] && roomView.status === 'lobby') r.reseat(myName(), myColor());
       if (r.isHost && inMatch && matchRoster) matchRoster.forEach((pl, i) => {
         if (!pl.bot && pl.uid !== user.uid && !p[pl.uid] && !gone.has(i)) { gone.add(i); Game.removeRider(i); }
       });
@@ -369,9 +387,10 @@ function tryBegin(){
 async function hostStart(){
   const players = sortedPlayers(), bots = Math.min(settings.obots, MAX - players.length);
   if (players.length + bots < 2) return toast('Add an AI rival or wait for a friend to join.');
+  const col = assignColours(players, bots);
   const roster = [
-    ...players.map(p => ({name:p.name, uid:p.uid, bot:false})),
-    ...Array.from({length:bots}, (_, j) => ({name:RIDERS[players.length + j].name, uid:'', bot:true}))
+    ...players.map((p, i) => ({name:p.name, uid:p.uid, bot:false, color:col.players[i]})),
+    ...Array.from({length:bots}, (_, j) => ({name:RIDERS[players.length + j].name, uid:'', bot:true, color:col.bots[j]}))
   ];
   const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win};
   await busy($('startMatch'), async () => {
@@ -407,9 +426,9 @@ function renderLobby(){
   const players = sortedPlayers(), host = room.isHost ? room.uid : roomView.host;
   const c = room.isHost ? cfgOut() : (roomView.cfg || {});
   const bots = Math.min(c.bots || 0, MAX - players.length);
-  const slots = [];
-  players.forEach((p, i) => slots.push(`<div class="slot" style="--c:${RIDERS[i].css}"><span class="dot"></span><span class="nm">${esc(p.name)}</span>${p.uid === host ? '<small>HOST</small>' : ''}${p.uid === user.uid ? '<small>YOU</small>' : ''}</div>`));
-  for (let j = 0; j < bots; j++) { const i = players.length + j; slots.push(`<div class="slot bot" style="--c:${RIDERS[i].css}"><span class="dot"></span><span class="nm">${RIDERS[i].name}</span><small>AI</small></div>`); }
+  const slots = [], col = assignColours(players, bots), css = k => Game.colourOf(k).css;
+  players.forEach((p, i) => slots.push(`<div class="slot${p.uid === user.uid ? ' me' : ''}" style="--c:${css(col.players[i])}"><span class="dot"></span><span class="nm">${esc(p.name)}</span>${p.uid === host ? '<small>HOST</small>' : ''}${p.uid === user.uid ? '<small>YOU</small>' : ''}</div>`));
+  for (let j = 0; j < bots; j++) { const i = players.length + j; slots.push(`<div class="slot bot" style="--c:${css(col.bots[j])}"><span class="dot"></span><span class="nm">${RIDERS[i].name}</span><small>AI</small></div>`); }
   for (let i = players.length + bots; i < MAX; i++) slots.push('<div class="slot open"><span class="dot"></span><span class="nm">Open slot</span></div>');
   $('slots').innerHTML = slots.join('');
   const ready = players.length + bots >= 2;
@@ -420,6 +439,35 @@ function renderLobby(){
              : 'Add an AI rival or wait for a friend to join with your code.')
     : 'Waiting for the host to start the match. Warm up those reflexes.';
 }
+
+/* ---------- Garage ---------- */
+let garagePick = 'crimson', garageFrom = 'home';
+const titleCase = k => k[0].toUpperCase() + k.slice(1);
+function openGarage(from){ garageFrom = from; garagePick = myColor(); renderGarage(); show('garage'); }
+function renderGarage(){
+  // In a lobby, colours other riders already hold are shown but locked
+  const taken = new Set();
+  if (room && garageFrom === 'lobby') {
+    const players = sortedPlayers(), col = assignColours(players, 0);
+    players.forEach((p, i) => { if (p.uid !== user.uid) taken.add(col.players[i]); });
+  }
+  $('swatches').innerHTML = VC.riders.map(c =>
+    `<button class="swatch" role="radio" style="--c:${c.css}" data-c="${c.key}" aria-label="${titleCase(c.key)}" aria-pressed="${c.key === garagePick}" aria-checked="${c.key === garagePick}"${taken.has(c.key) ? ' disabled title="Another rider in this grid has it"' : ''}></button>`).join('');
+  $('garageName').textContent = titleCase(garagePick);
+  qa('#swatches .swatch').forEach(b => b.addEventListener('click', () => {
+    garagePick = b.dataset.c; setAccent(garagePick); Game.showcase(true, Game.colourOf(garagePick).hex); renderGarage();
+  }));
+}
+$('garageSave').addEventListener('click', async () => {
+  settings.color = garagePick; save();
+  if (user && FB) { try { await FB.setColor(user.uid, garagePick); profile = {...profile, color:garagePick}; } catch (e) { toast('Saved on this device. Could not reach your profile.'); } }
+  if (room) room.setSeatColor(garagePick);
+  toast(`${titleCase(garagePick)} it is.`);
+  show(garageFrom);
+});
+$('garageBack').addEventListener('click', () => show(garageFrom));
+$('homeGarage').addEventListener('click', () => openGarage('home'));
+$('garageBtn').addEventListener('click', () => openGarage('lobby'));
 
 /* ---------- Leaderboard ---------- */
 async function loadBoard(field){

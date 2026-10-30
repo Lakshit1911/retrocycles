@@ -84,6 +84,8 @@ export const VISUAL_CONFIG = {
     fov:{cruise:42, boost:58, menu:55, overview:55},
     shake:{boost:0.05, crash:0.9, decay:2.2}
   },
+  // The turntable Phantom on the title and garage screens (camera space)
+  showroom:{scale:1.3, distance:5.6, drop:0.08, garageDrop:-0.1, minAspect:1.0, spin:0.35, light:[1.8, 2.2, -1], lightIntensity:3.2},
   effects: {
     heat:{max:900, size:0.12, life:0.6, rate:8, ratePerSpeed:1.0, back:2.5, rise:0.6, spread:0.6, brightness:0.9},
     shards:{count:80, speed:9, up:7, spin:14, life:1.2, size:0.32, gravity:16},

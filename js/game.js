@@ -6,7 +6,7 @@
              its own turns so steering feels instant */
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, headingYaw } from './visuals/riders.js';
-import { createPipeline, lin, defaultQuality } from './visuals/renderer.js';
+import { createPipeline, lin, linHex, defaultQuality } from './visuals/renderer.js';
 import { SFX } from './audio.js';
 import { createArena } from './visuals/arena.js';
 import { createTrails } from './visuals/trails.js';
@@ -120,19 +120,30 @@ function pathPoint(b, d, out){
   }
   return out.copy(b.pos);
 }
+/* Rider colours come from each rider's chosen colour key (the Garage), never duplicated:
+   riders without a valid, free choice take the first free colour in palette order. */
+export const colourOf = key => VC.riders.find(c => c.key === key);
+function paint(roster){
+  const used = new Set();
+  roster.forEach(p => { if (colourOf(p.color) && !used.has(p.color)) used.add(p.color); else p.color = null; });
+  roster.forEach(p => { if (!p.color) { p.color = VC.riders.find(c => !used.has(c.key)).key; used.add(p.color); } });
+  roster.forEach(p => { const c = colourOf(p.color); p.paint = {color:c.hex, css:c.css, key:c.key}; });
+  return roster;
+}
 function buildRiders(roster){
+  paint(roster);
   bikes.forEach(b => {
     scene.remove(b.mesh.group); trails.remove(b); fx.detachScan(b); disposeRiderVisual(b.mesh);
   });
   bikes = [];
   roster.forEach((p, i) => {
-    const r = RIDERS[i], mesh = createRiderVisual(r.color);
+    const r = p.paint, mesh = createRiderVisual(r.color);
     mesh.group.visible = false; scene.add(mesh.group);
     bikes.push({id:i, r, name:String(p.name || r.name).toUpperCase(), ai:!!p.bot, remote:!!p.remote, gone:false,
       mesh, segs:[], pos:new THREE.Vector3(), vpos:new THREE.Vector3(), alive:false, cleared:true, nt:0, k:0, local:[], gq:[], sched:[], queue:[],
       cx:H, cz:H, dir:0, p:0, mul:1, energy:.35, grind:0, vyaw:0, lean:0, snapT:0, lastLocalK:-1, localT:0,
       hist:new Int16Array(HIST * 2), trim:0, deathT:0,
-      rgb:[(r.color >> 16) & 255, (r.color >> 8) & 255, r.color & 255]});
+    });
   });
   bikes.forEach(b => { trails.add(b); fx.attachScan(b); });
   player = bikes[me] || bikes[0]; scores = bikes.map(() => 0); round = 0;
@@ -422,17 +433,27 @@ function updateBoard(){
   $('aliveLabel').textContent = `${alive} / ${bikes.length} riders`;
   $('roundLabel').textContent = `ROUND ${round}`;
 }
-const radar = $('radar'), rctx = radar.getContext('2d'), rimg = rctx.createImageData(N, N); let radarT = 0;
+// Minimap: walls as thin lines, riders as dots (you get a white ring)
+const radar = $('radar'), rctx = radar.getContext('2d'); let radarT = 0;
 function drawRadar(){
-  const d = rimg.data;
-  for (let i = 0; i < N * N; i++) {
-    const v = grid[i], o = i * 4;
-    if (v && bikes[v - 1]) { const c = bikes[v - 1].rgb; d[o] = c[0] * .7; d[o+1] = c[1] * .7; d[o+2] = c[2] * .7; }
-    else { const gl = (i % N) % 16 === 0 || ((i / N) | 0) % 16 === 0; d[o] = 8; d[o+1] = gl ? 26 : 16; d[o+2] = gl ? 34 : 24; }
-    d[o+3] = 255;
-  }
-  rctx.putImageData(rimg, 0, 0);
-  bikes.forEach(b => { if (!b.alive) return; rctx.fillStyle = b === player ? '#ffffff' : b.r.css; rctx.fillRect(b.cx - 2, b.cz - 2, 5, 5); });
+  const W = radar.width, S = W / N;
+  rctx.clearRect(0, 0, W, W);
+  rctx.lineCap = rctx.lineJoin = 'round';
+  bikes.forEach(b => {
+    if (b.cleared || !b.segs.length) return;
+    rctx.globalAlpha = b.alive ? .8 : .3; rctx.strokeStyle = b.r.css; rctx.lineWidth = 2;
+    rctx.beginPath();
+    b.segs.forEach((g, i) => { const x = (g.x0 + .5) * S, y = (g.z0 + .5) * S; if (i) rctx.lineTo(x, y); else rctx.moveTo(x, y); });
+    rctx.lineTo((b.pos.x + H) * S, (b.pos.z + H) * S);
+    rctx.stroke();
+  });
+  rctx.globalAlpha = 1;
+  bikes.forEach(b => {
+    if (!b.alive) return;
+    const x = (b.pos.x + H) * S, y = (b.pos.z + H) * S;
+    rctx.fillStyle = b.r.css; rctx.beginPath(); rctx.arc(x, y, b === player ? 6 : 4.5, 0, Math.PI * 2); rctx.fill();
+    if (b === player) { rctx.strokeStyle = '#ffffff'; rctx.lineWidth = 2; rctx.stroke(); }
+  });
 }
 function updateHud(dt){
   if (state === 'demo' || !player) return;
@@ -444,17 +465,41 @@ function updateHud(dt){
 }
 
 /* ---------- Camera ---------- */
+/* ---------- Showroom Phantom (title + garage) ---------- */
+// A turntable craft held in front of the camera, kept upright in world space whatever the camera does
+const hero = createRiderVisual(VC.riders[0].hex);
+hero.group.scale.multiplyScalar(VC.showroom.scale); hero.group.visible = false; camera.add(hero.group);
+const heroLight = new THREE.SpotLight(0xffffff, 0, 18, .55, .9, 1.2);
+heroLight.position.set(...VC.showroom.light); camera.add(heroLight); heroLight.target = hero.group;
+let heroOn = false, heroSpin = .6, heroDrop = VC.showroom.drop;
+const heroQ = new THREE.Quaternion(), heroYaw = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
+function showcase(on, hex, drop){
+  heroDrop = drop !== undefined ? drop : VC.showroom.drop;
+  heroOn = !!on; hero.group.visible = heroOn; heroLight.intensity = heroOn ? VC.showroom.lightIntensity : 0;
+  if (hex !== undefined) hero.ud.setColor(linHex(hex));
+}
+function updateHero(dt){
+  if (!heroOn) return;
+  heroSpin += dt * VC.showroom.spin;
+  const d = VC.showroom.distance * Math.max(1, VC.showroom.minAspect / camera.aspect);
+  hero.group.position.set(0, -d * heroDrop, -d);
+  heroQ.copy(camera.quaternion).invert().multiply(heroYaw.setFromAxisAngle(UP, heroSpin));
+  hero.group.quaternion.copy(heroQ);
+  hero.ud.update(dt, 0);
+}
+
 // Thrusters power on at GO: a short spike in the craft's visual speed
 function powerOn(){ bikes.forEach(b => { b.powerT = VC.effects.powerOn.duration; }); }
 
 /* ---------- Flow ---------- */
 function startDemo(){
   mode = 'solo'; net = null; me = 0; paused = false; $('pausebox').hidden = true;
-  state = 'demo'; buildRiders(RIDERS.slice(0, 4).map(r => ({name:r.name, bot:true}))); resetRound(); demoT = 0;
+  state = 'demo'; buildRiders(RIDERS.slice(0, 4).map((r, i) => ({name:r.name, bot:true, color:VC.riders[i].key}))); resetRound(); demoT = 0;
   $('hud').hidden = true; $('touch').hidden = true; $('menu').hidden = false;
 }
 function begin(){
   buildBoard();
+  document.documentElement.style.setProperty('--accent', player.r.css);   // your colour is the only UI accent
   $('winLabel').textContent = `First to ${cfg.win} rounds`;
   $('menu').hidden = true; $('hud').hidden = false; $('touch').hidden = !coarse;
   keys.boost = false; sentBoost = false; lastW = -1; snapAcc = 0;
@@ -463,13 +508,13 @@ function begin(){
 }
 function startSolo(o){
   SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win};
-  buildRiders([{name:o.name || 'YOU'}, ...RIDERS.slice(1, 1 + o.bots).map(r => ({name:r.name, bot:true}))]);
+  buildRiders([{name:o.name || 'YOU', color:o.color}, ...RIDERS.slice(1, 1 + o.bots).map(r => ({name:r.name, bot:true}))]);
   begin();
 }
 function startOnline(o){
   SFX.init(); mode = o.role; net = o.net; me = o.me; matchId = o.id; turnLog = {};
   cfg = {diff:o.diff, win:o.win};
-  buildRiders(o.roster.map((p, i) => ({name:p.name, bot:p.bot, remote:o.role === 'host' && !p.bot && i !== o.me})));
+  buildRiders(o.roster.map((p, i) => ({name:p.name, bot:p.bot, color:p.color, remote:o.role === 'host' && !p.bot && i !== o.me})));
   begin();
 }
 function nextRound(){
@@ -497,7 +542,7 @@ function afterRound(){
   if (scores[top] >= cfg.win) matchOver(bikes[top]); else nextRound();
 }
 function matchOver(w){
-  const summary = {online:mode !== 'solo', host:mode === 'host', won:!!w && w === player, winner:w ? w.name : '',
+  const summary = {online:mode !== 'solo', host:mode === 'host', won:!!w && w === player, winner:w ? w.name : '', winnerCss:w ? w.r.css : VC.palette.textDim,
     roundsWon:scores[player.id] || 0, rounds:round, diff:cfg.diff,
     table:bikes.map(b => ({name:b.name, css:b.r.css, score:scores[b.id] || 0, me:b === player, bot:b.ai})).sort((a, b) => b.score - a.score)};
   if (mode === 'host') { state = 'end'; lastW = w ? w.id : -1; pushState(); }
@@ -632,6 +677,7 @@ function frame(now){
   if (!pl && playing()) deadT += real; else deadT = 0;
   const follow = !player ? null : pl || deadT < 1.3 ? player : bikes.find(o => o.alive) || player;
   rig.update(vdt, {mode:camMode, focus:follow, player, boost:Math.max(speedK, boosting * .6), countdown:state === 'countdown', menu:state === 'demo' || state === 'wait'});
+  updateHero(vdt);
   updateHud(dt);
   SFX.mood(paused ? .15 : state === 'run' ? (pl ? 1 : .6) : state === 'countdown' ? .55 : state === 'over' ? .5 : .25);
   SFX.engine(state === 'run' && pl && !paused ? 1 : (state === 'countdown' && !paused ? .45 : 0), player ? player.mul : 1);
@@ -651,6 +697,7 @@ export const Game = {
   hooks, startSolo, startOnline, toDemo:() => { setMsg('', ''); startDemo(); },
   remoteTurn, remoteBoost, removeRider, applySnapshot, addTurnPoint,
   initAudio:() => SFX.init(),
+  showcase, colourOf,
   setQuality:q => { const l = pipe.setQuality(q); try { localStorage.setItem('pr-quality', l); } catch (e) {} return l; },
   get quality(){ return pipe.quality; },
   debug:() => ({state, round, mode, me, scores:scores.slice(), bikes:bikes.map(b => ({name:b.name, cx:b.cx, cz:b.cz, dir:b.dir, k:b.k, nt:b.nt, alive:b.alive, segs:b.segs.length}))}),

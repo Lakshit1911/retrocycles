@@ -3,7 +3,7 @@
      host     uid of the host (only the host can write anything but its own seat)
      status   'lobby' | 'playing'
      cfg      {bots, diff, win}           host's lobby settings
-     players  {uid: {name, t}}            each rider writes only its own seat
+     players  {uid: {name, t, color}}     each rider writes only its own seat (color = garage pick)
      start    {id, roster, diff, win}     the match the host just launched
      st       latest host snapshot        ~15 per second while racing
      tl       {r_id_n: [x, z]}            turn points, append-only per match
@@ -23,18 +23,18 @@ export class Room {
   }
   path(p){ return child(this.ref, p); }
 
-  static async host(uid, name, cfg){
+  static async host(uid, name, cfg, color){
     for (let i = 0; i < 8; i++) {
       const code = makeCode(), r = ref(db, `rooms/${code}`);
       if ((await get(child(r, 'host'))).exists()) continue;
-      await set(r, {host:uid, status:'lobby', created:serverTimestamp(), cfg, players:{[uid]:{name, t:Date.now()}}});
+      await set(r, {host:uid, status:'lobby', created:serverTimestamp(), cfg, players:{[uid]:{name, t:Date.now(), color}}});
       await onDisconnect(r).remove();
       return new Room(code, uid, true);
     }
     throw new Error('Could not find a free grid code. Try again.');
   }
 
-  static async join(code, uid, name){
+  static async join(code, uid, name, color){
     const r = ref(db, `rooms/${code}`);
     const [host, status, players] = await Promise.all(['host', 'status', 'players'].map(k => get(child(r, k))));
     if (!host.exists()) throw new Error(`No grid found with code ${code}.`);
@@ -42,7 +42,7 @@ export class Room {
     if (status.val() !== 'lobby') throw new Error('That grid is mid-race. Ask the host to let you in after.');
     if (players.size >= MAX && !players.hasChild(uid)) throw new Error('That grid is full (6 riders).');
     const seat = child(r, `players/${uid}`);
-    await set(seat, {name, t:Date.now()});
+    await set(seat, {name, t:Date.now(), color});
     await onDisconnect(seat).remove();
     return new Room(code, uid, false);
   }
@@ -57,10 +57,11 @@ export class Room {
     on('start', v => h.start(v));
   }
   // onDisconnect can drop a guest's seat after a network blip; put it back while still in the lobby
-  reseat(name){
+  reseat(name, color){
     const seat = this.path(`players/${this.uid}`);
-    return set(seat, {name, t:Date.now()}).then(() => onDisconnect(seat).remove()).catch(() => {});
+    return set(seat, {name, t:Date.now(), color}).then(() => onDisconnect(seat).remove()).catch(() => {});
   }
+  setSeatColor(color){ return set(this.path(`players/${this.uid}/color`), color).catch(() => {}); }
   setCfg(cfg){ if (this.isHost) return set(this.path('cfg'), cfg); }
 
   /* ---- host ---- */

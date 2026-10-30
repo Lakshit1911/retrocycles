@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-<meta name="theme-color" content="#05070d">
+<meta name="theme-color" content="#040508">
 <meta name="description" content="Phantom Run: an anti-gravity night race. Race AI rivals or host an online grid with a 5-character code.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -11,7 +11,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2305070d'/%3E%3Cpath d='M8 48h20V24h28' fill='none' stroke='%2339e6ff' stroke-width='6'/%3E%3Ccircle cx='56' cy='24' r='5' fill='%23ff9d2e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,500;0,700;1,700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -35,7 +35,7 @@
   </div>
   <div class="center"><div><div id="msg"></div><div id="sub"></div></div></div>
   <div class="bottom">
-    <canvas id="radar" width="128" height="128" aria-label="Arena radar"></canvas>
+    <canvas id="radar" width="256" height="256" aria-label="Arena minimap"></canvas>
     <div class="gauge">
       <div class="speed"><span id="spd">165</span><span class="unit">km/h</span></div>
       <div class="meter cut"><div id="nrg"></div></div>
@@ -75,11 +75,11 @@
       <pre class="boot tag" id="bootLog" aria-hidden="true"></pre>
       <div class="title-block">
         <div class="tag eyebrow">Anti-gravity night circuit · 128 × 128 grid</div>
-        <h1 class="logo" aria-label="Phantom Run"><span class="outline">PHANTOM</span> <span class="fill">RUN</span></h1>
+        <h1 class="logo" aria-label="Phantom Run">PHANTOM <span>RUN</span></h1>
         <div class="trail" aria-hidden="true"><i></i></div>
         <p class="lede">Every turn leaves a wall of light behind you. Box in your rivals, ride close to walls to charge your boost, and be the last rider still running.</p>
       </div>
-      <button class="ride cut press" id="pressStart">PRESS START</button>
+      <button class="press" id="pressStart">Press start</button>
       <div class="tag foot">Online grids · 5-char codes · up to 6 riders</div>
     </section>
 
@@ -115,7 +115,7 @@
     <section class="screen" data-screen="home" hidden>
       <div>
         <div class="tag eyebrow" id="homeEyebrow">Rider online</div>
-        <h1 class="logo sm" aria-label="Phantom Run"><span class="outline">PHANTOM</span> <span class="fill">RUN</span></h1>
+        <h1 class="logo sm" aria-label="Phantom Run">PHANTOM <span>RUN</span></h1>
         <p class="lede" id="homeLede">Pick your grid.</p>
       </div>
       <div class="tiles">
@@ -127,6 +127,7 @@
       <div class="who">
         <span class="tag" id="whoami">Guest rider</span>
         <span class="who-actions">
+          <button class="link" id="homeGarage" type="button">Garage</button>
           <button class="link" id="renameBtn" type="button" hidden>Rename</button>
           <button class="link" id="authBtn" type="button">Sign in</button>
         </span>
@@ -174,13 +175,31 @@
           <div class="tag eyebrow" id="lobbyEyebrow">Grid code</div>
           <div class="code" id="roomCode">-----</div>
         </div>
-        <button class="ghost cut" id="shareBtn" type="button">SHARE</button>
+        <div class="lobby-actions">
+          <button class="ghost cut" id="garageBtn" type="button">Garage</button>
+          <button class="ghost cut" id="shareBtn" type="button">Share</button>
+        </div>
       </div>
       <div class="slots" id="slots"></div>
       <div data-slot="settings"></div>
       <div class="hint" id="lobbyNote"></div>
       <button class="ride cut" id="startMatch">START MATCH</button>
       <button class="link" id="leaveRoom" type="button">Leave grid</button>
+    </section>
+
+    <!-- Garage: pick the light colour your Phantom casts -->
+    <section class="screen garage-screen" data-screen="garage" hidden>
+      <div>
+        <button class="link back" id="garageBack" type="button">← Back</button>
+        <div class="tag eyebrow">Garage</div>
+        <h2>Vanta Phantom</h2>
+      </div>
+      <div class="garage-panel">
+        <div class="garage-name" id="garageName">Crimson</div>
+        <div class="swatches" id="swatches" role="radiogroup" aria-label="Rider colour"></div>
+        <div class="hint" id="garageHint">Your colour is the light your Phantom casts. In a lobby, if someone already rides it, you take the next free one.</div>
+        <button class="ride cut" id="garageSave" type="button">Save colour</button>
+      </div>
     </section>
 
     <!-- Leaderboard -->
