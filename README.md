@@ -8,6 +8,9 @@ Static site: no build step. Three.js r128 and the Firebase JS SDK load from CDNs
 index.html               markup for HUD, title, auth, lobby, leaderboard
 css/style.css            theme + responsive layout
 js/game.js               engine: scene, riders, sim, audio, HUD, camera, netcode roles
+js/vanta.js              the Vanta Phantom vehicle model (createVanta)
+js/visuals/config.js     VISUAL_CONFIG: every tunable number for the look
+js/visuals/riders.js     per-rider Phantom, eased turns, banking, disposal
 js/ui.js                 screens, sign-in, host/join flow, leaderboard
 js/net.js                Realtime Database rooms (host / join / inputs / snapshots)
 js/firebase.js           Firebase auth, rider profiles, stats

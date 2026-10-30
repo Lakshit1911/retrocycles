@@ -4,19 +4,15 @@
      host  - simulates everything, streams snapshots + turn points to guests
      guest - renders host snapshots, dead-reckons between them and predicts
              its own turns so steering feels instant */
+import { VISUAL_CONFIG as VC } from './visuals/config.js';
+import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, headingYaw } from './visuals/riders.js';
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
-const N = 128, H = N / 2, WALL_H = 1.25, T = 0.16, BASE = 15;
+const N = 128, H = N / 2, WALL_H = VC.wall.height, T = 0.16, BASE = 15;
 const SNAP_DT = 1 / 15, REWIND = 6, GRACE = .2, HIST = 8;
 const DIRS = [[1,0],[0,1],[-1,0],[0,-1]];
-export const RIDERS = [
-  {name:'YOU',     color:0x39e6ff, css:'#39e6ff'},
-  {name:'KESTREL', color:0xff9d2e, css:'#ff9d2e'},
-  {name:'JUNO',    color:0xff3fa4, css:'#ff3fa4'},
-  {name:'RIVET',   color:0xb6ff3a, css:'#b6ff3a'},
-  {name:'ORCA',    color:0x9d8cff, css:'#9d8cff'},
-  {name:'SABLE',   color:0xffe14d, css:'#ffe14d'}
-];
+export const RIDERS = ['YOU', 'KESTREL', 'JUNO', 'RIVET', 'ORCA', 'SABLE']
+  .map((name, i) => ({name, color:VC.riders[i].hex, css:VC.riders[i].css}));
 export const DIFF = {
   rookie:{react:[1,3], bfs:40,  noise:.4,  turn:.012, hunt:0,   boost:.15, hint:'Reacts late and is easy to trap'},
   rider: {react:[3,6], bfs:180, noise:.15, turn:.02,  hunt:.35, boost:.5,  hint:'Reads the arena and hunts you now and then'},
@@ -129,88 +125,7 @@ function raster(id, x0, z0, x1, z1){
 
 /* ---------- Bikes ---------- */
 const UNIT = new THREE.BoxGeometry(1,1,1);
-/* Shared bike geometry: a side profile extruded into a bevelled shell, with
-   wheel wells cut through it so the wheels sit encased inside the body. */
-const WHEELS = [.85, -.82];
-const BIKE = (() => {
-  const s = new THREE.Shape();
-  s.moveTo(-1.32, .5);
-  s.quadraticCurveTo(-1.34, 1.0, -.9, 1.04);
-  s.lineTo(-.35, .95);
-  s.quadraticCurveTo(.15, .86, .5, 1.0);
-  s.quadraticCurveTo(1.15, 1.1, 1.36, .55);
-  s.quadraticCurveTo(1.38, .08, .85, .06);
-  s.quadraticCurveTo(.4, .06, .3, .3);
-  s.lineTo(-.3, .3);
-  s.quadraticCurveTo(-.4, .06, -.82, .06);
-  s.quadraticCurveTo(-1.3, .08, -1.32, .5);
-  WHEELS.forEach(x => { const h = new THREE.Path(); h.absarc(x, .5, .4, 0, Math.PI * 2, true); s.holes.push(h); });
-  const shell = new THREE.ExtrudeGeometry(s, {depth:.3, bevelEnabled:true, bevelThickness:.05, bevelSize:.035, bevelSegments:3, curveSegments:28});
-  shell.translate(0, 0, -.15);
-  const tube = (pts, z, r) => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts.map(([x, y]) => new THREE.Vector3(x, y, z))), 48, r, 6, false);
-  const spine = [[-1.24,.6],[-1.2,.84],[-.9,.96],[-.35,.88],[.15,.8],[.5,.91],[.98,.86],[1.25,.56]];
-  const belly = [[.5,.2],[.37,.37],[0,.38],[-.37,.37],[-.5,.2]];
-  const sph = new THREE.SphereGeometry(1, 18, 12);
-  return {
-    shell, sph,
-    spine:[tube(spine, .205, .017), tube(spine, -.205, .017)],
-    belly:[tube(belly, .205, .014), tube(belly, -.205, .014)],
-    well:new THREE.TorusGeometry(.42, .024, 8, 44),
-    tire:new THREE.TorusGeometry(.32, .075, 12, 36),
-    hub:new THREE.TorusGeometry(.19, .03, 8, 28),
-    disc:new THREE.CylinderGeometry(.24, .24, .22, 24),
-    tread:new THREE.BoxGeometry(.07, .028, .17),
-    lamp:new THREE.BoxGeometry(.05, .07, .3)
-  };
-})();
-
-function makeBike(color){
-  const group = new THREE.Group(), inner = new THREE.Group(); group.add(inner);
-  const col = new THREE.Color(color);
-  const body = new THREE.MeshPhongMaterial({color:0x0c131b, specular:0x7896a6, shininess:90, emissive:col.clone().multiplyScalar(.05)});
-  const suit = new THREE.MeshPhongMaterial({color:0x111a23, specular:0x4a6878, shininess:60});
-  const glow = new THREE.MeshBasicMaterial({color});
-  const hot = new THREE.MeshBasicMaterial({color:col.clone().lerp(new THREE.Color(0xffffff), .55)});
-  const add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); inner.add(m); return m; };
-
-  add(BIKE.shell, body);
-  BIKE.spine.forEach(g => add(g, glow));
-  BIKE.belly.forEach(g => add(g, glow));
-  WHEELS.forEach(x => [.2, -.2].forEach(z => add(BIKE.well, glow, x, .5, z)));
-  add(BIKE.lamp, hot, 1.33, .62, 0);
-  add(BIKE.lamp, glow, -1.33, .64, 0);
-
-  // Rider, tucked low over the shell
-  const ell = (mat, x, y, z, sx, sy, sz, rz = 0) => { const m = add(BIKE.sph, mat, x, y, z); m.scale.set(sx, sy, sz); m.rotation.z = rz; return m; };
-  ell(suit, -.06, 1.08, 0, .42, .13, .17, -.12);
-  ell(suit, -.48, 1.03, 0, .2, .13, .17);
-  [.17, -.17].forEach(z => {
-    ell(suit, -.32, .93, z, .3, .075, .075, .45);
-    ell(suit, .46, 1.06, z * .95, .26, .05, .05, .22);
-  });
-  ell(suit, .42, 1.18, 0, .17, .15, .14);
-  const visor = add(new THREE.BoxGeometry(.1, .05, .24), hot, .55, 1.18, 0); visor.rotation.z = -.2;
-  const back = add(new THREE.BoxGeometry(.62, .022, .04), glow, -.06, 1.215, 0); back.rotation.z = -.12;
-
-  const wheels = [];
-  WHEELS.forEach(x => {
-    const w = new THREE.Group(); w.position.set(x, .5, 0); inner.add(w);
-    w.add(new THREE.Mesh(BIKE.tire, body));
-    w.add(new THREE.Mesh(BIKE.hub, glow));
-    const disc = new THREE.Mesh(BIKE.disc, suit); disc.rotation.x = Math.PI / 2; w.add(disc);
-    for (let i = 0; i < 6; i++) {
-      const a = i / 6 * Math.PI * 2, t = new THREE.Mesh(BIKE.tread, glow);
-      t.position.set(Math.cos(a) * .32, Math.sin(a) * .32, 0); t.rotation.z = a + Math.PI / 2; w.add(t);
-    }
-    wheels.push(w);
-  });
-
-  const halo = new THREE.Mesh(new THREE.PlaneGeometry(3.8, 1.6), new THREE.MeshBasicMaterial({color, transparent:true, opacity:.3, blending:THREE.AdditiveBlending, depthWrite:false}));
-  halo.rotation.x = -Math.PI / 2; halo.position.y = .03; group.add(halo);
-  return {group, inner, wheels};
-}
-const yawOf = d => Math.atan2(-DIRS[d][1], DIRS[d][0]);
-const wrapAngle = a => ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+const headingOf = d => headingYaw(DIRS[d][0], DIRS[d][1]);
 
 let bikes = [], player = null, scores = [], round = 0;
 let state = 'demo', cd = 0, overT = 0, spectT = 0, deadT = 0, demoT = 0, paused = false, msgT = 0;
@@ -233,16 +148,48 @@ function sizeSeg(s, x1, z1){
   s.fl.scale.set(lx + 1.2, .02, lz + 1.2); s.fl.position.set(cx, .015, cz);
 }
 const removeSeg = s => scene.remove(s.wall, s.cap, s.fl);
+const segVisible = (s, v) => { s.wall.visible = s.cap.visible = s.fl.visible = v; };
+
+// Point on a rider's path, d cells back from its simulated head (extends straight back past the spawn)
+function pathPoint(b, d, out){
+  let ex = b.pos.x, ez = b.pos.z;
+  for (let i = b.segs.length - 1; i >= 0; i--) {
+    const s = b.segs[i], sx = wx(s.x0), sz = wx(s.z0), len = Math.abs(ex - sx) + Math.abs(ez - sz);
+    if (d <= len) { const k = len > 0 ? d / len : 0; return out.set(ex + (sx - ex) * k, 0, ez + (sz - ez) * k); }
+    if (i === 0) {
+      const [dx, dz] = len > 0 ? [Math.sign(ex - sx), Math.sign(ez - sz)] : DIRS[b.dir];
+      return out.set(sx - dx * (d - len), 0, sz - dz * (d - len));
+    }
+    d -= len; ex = sx; ez = sz;
+  }
+  return out.copy(b.pos);
+}
+/* Visual only: hide the last `trim` cells of wall so it appears to leave the craft's tail.
+   The occupied cells (collisions) are untouched. */
+function layWalls(b, trim){
+  let remain = trim, ex = b.pos.x, ez = b.pos.z;
+  for (let i = b.segs.length - 1; i >= 0; i--) {
+    const s = b.segs[i], sx = wx(s.x0), sz = wx(s.z0), len = Math.abs(ex - sx) + Math.abs(ez - sz);
+    if (remain > 0 && remain >= len) { segVisible(s, false); remain -= len; ex = sx; ez = sz; continue; }
+    const k = len > 0 ? remain / len : 0;
+    sizeSeg(s, ex + (sx - ex) * k, ez + (sz - ez) * k); segVisible(s, true);
+    if (i > 0) { const prev = b.segs[i - 1]; sizeSeg(prev, sx, sz); segVisible(prev, true); }
+    return;
+  }
+}
 
 function buildRiders(roster){
-  bikes.forEach(b => { scene.remove(b.mesh.group); b.segs.forEach(removeSeg); });
+  bikes.forEach(b => {
+    scene.remove(b.mesh.group); b.segs.forEach(removeSeg);
+    disposeRiderVisual(b.mesh); [b.wallMat, b.capMat, b.floorMat].forEach(m => m.dispose());
+  });
   bikes = [];
   roster.forEach((p, i) => {
-    const r = RIDERS[i], col = new THREE.Color(r.color), mesh = makeBike(r.color);
+    const r = RIDERS[i], col = new THREE.Color(r.color), mesh = createRiderVisual(r.color);
     mesh.group.visible = false; scene.add(mesh.group);
     bikes.push({id:i, r, name:String(p.name || r.name).toUpperCase(), ai:!!p.bot, remote:!!p.remote, gone:false,
-      mesh, segs:[], pos:new THREE.Vector3(), alive:false, cleared:true, nt:0, k:0, local:[], gq:[], sched:[], queue:[],
-      cx:H, cz:H, dir:0, p:0, mul:1, energy:.35, grind:0, yaw:0, lean:0, snapT:0, lastLocalK:-1, localT:0,
+      mesh, segs:[], pos:new THREE.Vector3(), vpos:new THREE.Vector3(), alive:false, cleared:true, nt:0, k:0, local:[], gq:[], sched:[], queue:[],
+      cx:H, cz:H, dir:0, p:0, mul:1, energy:.35, grind:0, vyaw:0, lean:0, snapT:0, lastLocalK:-1, localT:0,
       hist:new Int16Array(HIST * 2),
       wallMat:new THREE.MeshBasicMaterial({color:col, transparent:true, opacity:.55, depthWrite:false, side:THREE.DoubleSide}),
       capMat:new THREE.MeshBasicMaterial({color:col.clone().lerp(new THREE.Color(0xffffff), .5), transparent:true, opacity:1}),
@@ -268,8 +215,9 @@ function resetRound(){
     const vx = H - b.cx, vz = H - b.cz; let best = 0, bd = -1e9;
     DIRS.forEach(([dx, dz], d) => { const s = dx * vx + dz * vz; if (s > bd) { bd = s; best = d; } });
     Object.assign(b, {dir:best, p:0, mul:1, energy:.35, grind:0, queue:[], sched:[], local:[], gq:[], alive:!b.gone, deathT:0, cleared:b.gone,
-      wantBoost:false, react:2, yaw:yawOf(best), lean:0, k:0, nt:0, grace:0, lastTurnK:-1});
+      wantBoost:false, react:2, k:0, nt:0, grace:0, lastTurnK:-1});
     b.hist[0] = b.cx; b.hist[1] = b.cz;
+    resetPose(b, headingOf(best));
     revive(b);
     if (!b.alive) return;
     grid[b.cx + b.cz * N] = b.id + 1;
@@ -283,13 +231,11 @@ function resetRound(){
 function placeBike(b, dt){
   const [dx, dz] = DIRS[b.dir];
   b.pos.set(wx(b.cx) + dx * b.p, 0, wx(b.cz) + dz * b.p);
-  const diff = wrapAngle(yawOf(b.dir) - b.yaw);
-  b.yaw += diff * Math.min(1, dt * 16);
-  b.lean += (Math.max(-.5, Math.min(.5, -diff * .6)) - b.lean) * Math.min(1, dt * 10);
-  const g = b.mesh.group; g.position.copy(b.pos); g.rotation.y = b.yaw; b.mesh.inner.rotation.x = b.lean;
-  const spin = BASE * b.mul * dt / .46 * (state === 'run' || state === 'over' || state === 'demo' ? 1 : 0);
-  b.mesh.wheels.forEach(w => w.rotation.z -= spin);
-  const cur = b.segs[b.segs.length - 1]; if (cur) sizeSeg(cur, b.pos.x, b.pos.z);
+  // Visual layer: the craft rides the path a little behind the head, eased and banked through turns
+  const moving = state === 'run' || state === 'over' || state === 'demo';
+  pathPoint(b, VC.vehicle.originBehindHead, b.vpos);
+  updatePose(b, dt, b.vpos, headingOf(b.dir), moving ? BASE * b.mul / VC.vehicle.scale : 0);
+  layWalls(b, VC.vehicle.originBehindHead + b.mesh.tail);
 }
 
 function turn(b, t){
@@ -367,7 +313,8 @@ function think(b){
 
 function crash(b){
   b.alive = false; b.grace = 0; b.mesh.group.visible = false;
-  explode(b.pos.x, b.pos.z, b.r.color);
+  layWalls(b, 0);
+  explode(b.vpos.x, b.vpos.z, b.r.color);
   if (state !== 'demo') {
     const dist = player.alive ? player.pos.distanceTo(b.pos) : 20;
     SFX.boom(b === player ? 1 : Math.max(.12, .6 - dist / 120));
@@ -451,7 +398,8 @@ function guestRound(st){
   st.b.forEach((a, i) => {
     const b = bikes[i]; if (!b) return;
     Object.assign(b, {cx:a[0], cz:a[1], dir:a[2], p:a[3] / 100, mul:a[4] / 100, alive:!!a[5], energy:a[6] / 100, grind:a[7] ? .22 : 0,
-      k:a[8], nt:a[9], spawn:{x:a[0], z:a[1]}, local:[], gq:[], lastLocalK:-1, snapT:0, deathT:0, cleared:!a[5], yaw:yawOf(a[2]), lean:0});
+      k:a[8], nt:a[9], spawn:{x:a[0], z:a[1]}, local:[], gq:[], lastLocalK:-1, snapT:0, deathT:0, cleared:!a[5]});
+    resetPose(b, headingOf(a[2]));
     revive(b);
     if (!b.alive) return;
     const pts = guestPts(b);
@@ -763,8 +711,8 @@ function updateHud(dt){
 const CAMS = ['Chase', 'Cockpit', 'Overhead'];
 const tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
 function introCam(){
-  const fx = Math.cos(player.yaw), fz = -Math.sin(player.yaw);
-  camPos.set(player.pos.x - fx * 30, 34, player.pos.z - fz * 30); camLook.copy(player.pos);
+  const fx = -Math.sin(player.vyaw), fz = -Math.cos(player.vyaw);
+  camPos.set(player.vpos.x - fx * 30, 34, player.vpos.z - fz * 30); camLook.copy(player.vpos);
   camera.fov = 68; camera.updateProjectionMatrix();
 }
 function updateCamera(dt){
@@ -776,12 +724,13 @@ function updateCamera(dt){
   }
   let b = player;
   if (!player.alive) { deadT += dt; if (deadT > 1.3) b = bikes.find(o => o.alive) || player; }
-  const fx = Math.cos(b.yaw), fz = -Math.sin(b.yaw);
+  const fx = -Math.sin(b.vyaw), fz = -Math.cos(b.vyaw), P = b.vpos;
   let mode = camMode, k = 6;
   if (!b.alive) mode = 2;
-  if (mode === 0) { tmpA.set(b.pos.x - fx * 8.5, 4.2, b.pos.z - fz * 8.5); tmpB.set(b.pos.x + fx * 10, .8, b.pos.z + fz * 10); k = state === 'countdown' ? 2.2 : 7; }
-  else if (mode === 1) { tmpA.set(b.pos.x + fx * .35, 1.2, b.pos.z + fz * .35); tmpB.set(b.pos.x + fx * 25, .9, b.pos.z + fz * 25); k = 30; }
-  else { tmpA.set(b.pos.x, 72, b.pos.z + 30); tmpB.copy(b.pos); k = 3; }
+  const C = VC.camera;
+  if (mode === 0) { tmpA.set(P.x - fx * C.chase.back, C.chase.height, P.z - fz * C.chase.back); tmpB.set(P.x + fx * C.chase.ahead, C.chase.lookHeight, P.z + fz * C.chase.ahead); k = state === 'countdown' ? 2.2 : C.chase.follow; }
+  else if (mode === 1) { tmpA.set(P.x + fx * .35, C.cockpit.height, P.z + fz * .35); tmpB.set(P.x + fx * C.cockpit.ahead, .7, P.z + fz * C.cockpit.ahead); k = 30; }
+  else { tmpA.set(P.x, C.overhead.height, P.z + C.overhead.back); tmpB.copy(P); k = 3; }
   camPos.lerp(tmpA, 1 - Math.exp(-dt * k)); camLook.lerp(tmpB, 1 - Math.exp(-dt * k));
   camera.position.copy(camPos);
   if (shake > 0) { camera.position.x += (Math.random() - .5) * shake * .9; camera.position.y += (Math.random() - .5) * shake * .9; shake = Math.max(0, shake - dt * 2.2); }
