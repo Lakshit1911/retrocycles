@@ -1,0 +1,4 @@
+{
+  "//": "Lets Node load these browser ES modules directly (node tests/*.test.mjs). Not used by the site.",
+  "type": "module"
+}
