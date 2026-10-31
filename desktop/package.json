@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "private": true,
   "main": "main.js",
+  "desktopName": "phantom-run.desktop",
   "scripts": {
     "build-app": "node scripts/build-app.mjs",
     "start": "npm run build-app && electron .",
@@ -44,8 +45,11 @@
       "output": "dist",
       "buildResources": "build"
     },
+    "publish": null,
     "npmRebuild": false,
-    "electronLanguages": ["en-US"],
+    "electronLanguages": [
+      "en-US"
+    ],
     "files": [
       "main.js",
       "preload.js",
@@ -55,19 +59,46 @@
       "package.json",
       "!**/*.map"
     ],
-    "asarUnpack": ["node_modules/steamworks.js/dist/**"],
+    "asarUnpack": [
+      "node_modules/steamworks.js/dist/**"
+    ],
     "extraResources": [
-      { "from": "steam_appid.txt", "to": "steam_appid.txt" }
+      {
+        "from": "steam_appid.txt",
+        "to": "steam_appid.txt"
+      }
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] },
-        { "target": "dir", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "executableName": "PhantomRun",
       "icon": "build/icon.png",
       "files": [
+        "main.js",
+        "preload.js",
+        "src/**",
+        "app/**",
+        "achievements.json",
+        "package.json",
+        "!**/*.map",
         "!node_modules/steamworks.js/dist/{linux64,osx}/**",
         "!node_modules/steamworks.js/dist/win64/*.lib"
       ]
@@ -84,8 +115,18 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["universal"] },
-        { "target": "dir", "arch": ["universal"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "universal"
+          ]
+        }
       ],
       "category": "public.app-category.racing-games",
       "icon": "build/icon.png",
@@ -95,21 +136,50 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "notarize": false,
       "x64ArchFiles": "**/node_modules/steamworks.js/dist/osx/*",
-      "files": ["!node_modules/steamworks.js/dist/{linux64,win64}/**"]
+      "files": [
+        "main.js",
+        "preload.js",
+        "src/**",
+        "app/**",
+        "achievements.json",
+        "package.json",
+        "!**/*.map",
+        "!node_modules/steamworks.js/dist/{linux64,win64}/**"
+      ]
     },
     "dmg": {
       "artifactName": "${productName}-${version}-mac.${ext}"
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] },
-        { "target": "dir", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "executableName": "phantom-run",
       "category": "Game",
       "icon": "build/icon.png",
       "synopsis": "Anti-gravity night race with walls of light",
-      "files": ["!node_modules/steamworks.js/dist/{osx,win64}/**"]
+      "files": [
+        "main.js",
+        "preload.js",
+        "src/**",
+        "app/**",
+        "achievements.json",
+        "package.json",
+        "!**/*.map",
+        "!node_modules/steamworks.js/dist/{osx,win64}/**"
+      ],
+      "syncDesktopName": true
     },
     "appImage": {
       "artifactName": "${productName}-${version}-x86_64.${ext}"

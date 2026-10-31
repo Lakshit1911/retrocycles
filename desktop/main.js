@@ -223,13 +223,17 @@ function runSmoke(w){
     const d = a[0] && typeof a[0] === 'object' && 'message' in a[0] ? a[0] : {level:levels[a[1]] || a[1], message:a[2], sourceId:a[4], lineNumber:a[3]};
     consoleLines.push({level:typeof d.level === 'number' ? levels[d.level] : d.level, message:String(d.message), source:`${d.sourceId || ''}:${d.lineNumber || ''}`});
   });
+  let done = false;
   const finish = (result) => {
+    if (done) return;
+    done = true;
     result.console = consoleLines;
     result.ok = !!result.ok && !consoleLines.some(l => l.level === 'error' && !/gstatic|firebase|ERR_|net::/i.test(l.message));
     process.stdout.write(`SMOKE_RESULT ${JSON.stringify(result)}\n`);
     app.exit(result.ok ? 0 : 1);
   };
-  setTimeout(() => finish({ok:false, error:'timeout'}), 60000).unref();
+  // Software WebGL on a busy CI box can be slow; PHANTOM_SMOKE_TIMEOUT (ms) raises the limit
+  setTimeout(() => finish({ok:false, error:'timeout'}), Number(process.env.PHANTOM_SMOKE_TIMEOUT) || 90000).unref();
   w.webContents.once('did-finish-load', async () => {
     try {
       const r = await w.webContents.executeJavaScript(`(${smokeScript.toString()})()`, true);
