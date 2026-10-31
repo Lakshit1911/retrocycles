@@ -9,7 +9,9 @@ index.html               markup for HUD, title, auth, lobby, leaderboard
 css/style.css            theme + responsive layout
 js/game.js               engine: scene, riders, sim, HUD, camera, netcode roles
 js/audio.js              original synthesised score + sound effects (Web Audio)
-js/vanta.js              the Vanta Phantom vehicle model (createVanta)
+js/vehicles/phantom-gt.js  the Phantom GT craft (createPhantomGT), used by every rider
+js/vanta.js              the original Vanta Phantom model (kept for reference)
+tools/vehicle-preview.html  side-by-side craft preview (GT / Vanta, colours, speed, lean)
 js/visuals/config.js     VISUAL_CONFIG: every tunable number for the look
 js/visuals/riders.js     per-rider Phantom, eased turns, banking, disposal
 js/visuals/renderer.js   renderer, colour pipeline, reflections, lights, fog, bloom, quality levels

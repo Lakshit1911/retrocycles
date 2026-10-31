@@ -1,7 +1,7 @@
-/* Rider visuals: the Vanta Phantom per rider, plus the purely visual pose on top of the
+/* Rider visuals: the Phantom GT per rider, plus the purely visual pose on top of the
    simulation: eased yaw through each 90 degree turn, a quick bank into it, hover animation.
    Nothing here feeds back into positions, cells or collisions. */
-import { createVanta } from '../vanta.js';
+import { createPhantomGT } from '../vehicles/phantom-gt.js';
 import { VISUAL_CONFIG as VC } from './config.js';
 import { linHex } from './renderer.js';
 const THREE = window.THREE;
@@ -26,7 +26,7 @@ function linearizeFixedColours(root, accentHex){
 
 export function createRiderVisual(color){
   const accent = linHex(color);
-  const root = createVanta(THREE, {hover:true, color:accent, scale:VC.vehicle.scale});
+  const root = createPhantomGT(THREE, {hover:true, color:accent, scale:VC.vehicle.scale});
   linearizeFixedColours(root, accent);
   const ud = root.userData;
   // Distance from the craft origin back to where its light wall begins, in cells

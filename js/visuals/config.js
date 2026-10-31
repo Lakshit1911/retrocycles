@@ -15,7 +15,7 @@ export const VISUAL_CONFIG = {
     {key:'platinum', hex:0xe8eef8, css:'#e8eef8'}
   ],
   vehicle: {
-    scale:0.55,          // 4.4 m model -> ~2.4 cells long, ~0.45 cells wide
+    scale:0.6,           // 4.4 m model -> ~2.6 cells long, ~0.5 cells wide
     originBehindHead:0.75 // cells the craft's origin trails the simulated head, so the nose sits at the head
   },
   turn: {
