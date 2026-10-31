@@ -1,0 +1,16 @@
+"lang"
+{
+	"Language"	"english"
+	"Tokens"
+	{
+		// Rich presence localization for Steam (Steamworks partner site: App Admin > Community > Rich Presence).
+		// js/platform.js sets steam_display to one of these tokens; %key% is replaced with the value of
+		// another rich presence key the game sets (difficulty, riders, score).
+		"#Status_Menu"		"In the menus"
+		"#Status_Garage"	"Tuning their Phantom in the Garage"
+		"#Status_Ranks"		"Reading the leaderboard"
+		"#Status_Lobby"		"Waiting in an online grid"
+		"#Status_Solo"		"Racing %difficulty% AI rivals · %score% rounds won"
+		"#Status_Online"	"Racing an online grid of %riders% · %score% rounds won"
+	}
+}
