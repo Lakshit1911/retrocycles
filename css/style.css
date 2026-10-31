@@ -390,3 +390,38 @@ kbd{font-family:var(--mono);font-size:10.5px;color:var(--ink);border:1px solid v
   .reveal-beam i,.reveal-meta,.reveal-screen .ride{transition:none}
   .reveal-screen.named .reveal-name span{animation:none;opacity:1;filter:none;transform:none}
 }
+
+/* ---------- Circuit: race position, lap timing, splits, burst meter, item, burst button ---------- */
+:root{--good:#4be08a;--bad:#ff6b78}
+.laps{display:grid;gap:3px;margin-top:8px;min-width:150px}
+.race-pos{display:flex;align-items:baseline;gap:6px}
+.race-pos b{font-family:var(--mono);font-weight:400;font-size:30px;line-height:1;color:var(--ink);font-variant-numeric:tabular-nums}
+.lap-now{font-family:var(--mono);font-size:18px;font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:.02em}
+.lap-row{display:flex;gap:10px;align-items:baseline;font-size:12px}
+.lap-row .num{color:var(--dim)}
+.split{font-family:var(--mono);font-size:15px;font-variant-numeric:tabular-nums;min-height:19px;color:var(--ink)}
+.split.good{color:var(--good)}
+.split.bad{color:var(--bad)}
+.race-note{min-height:14px;color:var(--ink)}
+.chip .lapc{font-size:10px;color:var(--dim);font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
+.burst-row{display:grid;gap:8px;margin-top:4px}
+.meter.burst #brst{position:absolute;inset:0 auto 0 0;width:50%;background:var(--ink);box-shadow:0 0 8px rgba(228,232,239,.55);border-radius:2px}
+.meter.burst.on #brst{background:var(--accent);box-shadow:0 0 12px var(--accent)}
+.item{--c:var(--faint);color:var(--faint)}
+.item.on{color:var(--c);text-shadow:0 0 8px var(--c)}
+.touch .mid{display:flex;flex-direction:column;align-items:center;gap:12px}
+.touch .burst{--d:clamp(60px,16vw,78px);font-family:var(--display);font-size:9.5px;letter-spacing:.2em}
+body.coarse.circuit .hud{padding-block-end:calc(env(safe-area-inset-bottom,0px) + clamp(60px,16vw,78px) * 2 + 46px)}
+@media (max-width:560px){
+  .laps{min-width:0}
+  .race-pos b{font-size:24px}
+  .lap-now{font-size:15px}
+}
+@media (max-height:520px){
+  .touch .burst{--d:clamp(50px,14vh,64px)}
+  body.coarse.circuit .hud{padding-block-end:calc(env(safe-area-inset-bottom,0px) + clamp(56px,17vh,76px) + 22px)}
+  .touch .mid{flex-direction:row}
+}
+.result .circuit-rows em{font-style:normal;font-size:11px;color:var(--dim);min-width:2.6ch}
+.result .circuit-rows small{font-size:10.5px;color:var(--dim);letter-spacing:.06em;white-space:nowrap}
+.result .circuit-rows b{font-size:15px}

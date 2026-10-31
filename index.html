@@ -31,6 +31,14 @@
         <button class="hud-btn cut" data-mute aria-pressed="false" aria-label="Toggle sound">♪</button>
       </div>
       <div class="tag" id="winLabel">First to 5 rounds</div>
+      <!-- Circuit: position, lap timing, splits -->
+      <div class="laps" id="lapPanel" hidden>
+        <div class="race-pos"><b id="racePos" class="num">P1</b><span id="raceOf" class="tag">/ 4</span></div>
+        <div class="lap-now num" id="lapNow">0:00.000</div>
+        <div class="lap-row"><span class="tag">Best</span><span class="num" id="lapBest">–:––.–––</span></div>
+        <div class="split num" id="split" aria-live="polite"></div>
+        <div class="race-note tag" id="raceNote"></div>
+      </div>
     </div>
     <div class="board" id="board"></div>
   </div>
@@ -41,6 +49,10 @@
       <div class="speed"><span id="spd">165</span><span class="unit">km/h</span></div>
       <div class="meter cut"><div id="nrg"></div></div>
       <div class="meter-row"><span class="tag">Boost charge</span><span class="tag" id="slip">Slipstream</span></div>
+      <div class="burst-row" id="burstRow" hidden>
+        <div class="meter cut burst"><div id="brst"></div></div>
+        <div class="meter-row"><span class="tag">Light burst</span><span class="item tag" id="item" data-k="">NO ITEM</span></div>
+      </div>
     </div>
     <div class="hints tag"><div><b>C</b> camera · <span id="camLabel">Chase</span></div><div><b>P</b> menu · <b>M</b> <span id="muteLabel">sound on</span></div></div>
   </div>
@@ -48,7 +60,10 @@
 
 <div class="touch" id="touch" hidden>
   <button id="tL" class="cut" aria-label="Turn left">◀</button>
-  <button id="tB" class="cut boost" aria-label="Boost">BOOST</button>
+  <div class="mid">
+    <button id="tX" class="cut burst" aria-label="Light burst" hidden>BURST</button>
+    <button id="tB" class="cut boost" aria-label="Boost">BOOST</button>
+  </div>
   <button id="tR" class="cut" aria-label="Turn right">▶</button>
 </div>
 
@@ -148,10 +163,12 @@
       <div class="keys">
         <div><span id="kTurn">Steer (hold)</span><span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></span></div>
         <div id="kSnap"><span>Snap 90°</span><span><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></span></div>
+        <div id="kBurst" hidden><span>Light burst</span><span><kbd>Shift</kbd> / <kbd>E</kbd></span></div>
+        <div id="kBrake" hidden><span>Brake</span><span><kbd>↓</kbd> / <kbd>S</kbd></span></div>
         <div><span>Boost</span><span><kbd>Space</kbd> / <kbd>W</kbd></span></div>
         <div><span>Camera</span><kbd>C</kbd></div>
         <div><span>Menu / Sound</span><span><kbd>P</kbd> <kbd>M</kbd></span></div>
-        <div><span>Charge boost</span><span>ride beside a wall</span></div>
+        <div><span>Charge boost</span><span id="kCharge">ride beside a wall</span></div>
         <div><span>Phone</span><span id="kPhone">hold ◀ ▶ to steer · swipe to snap</span></div>
       </div>
     </section>
@@ -275,6 +292,10 @@
     <!-- Shared settings block, moved between Solo and Lobby -->
     <div class="settings" id="settingsBlock">
       <div class="row">
+        <div><div class="label">Event</div><div class="hint" id="eventHint">Last rider standing in the arena</div></div>
+        <div class="seg cut" id="eventSeg"><button data-e="arena">Arena</button><button data-e="circuit">Circuit</button></div>
+      </div>
+      <div class="row" id="steerRow">
         <div><div class="label">Steering</div><div class="hint" id="steerHint">Hold to carve, Shift or swipe to snap 90°</div></div>
         <div class="seg cut" id="steerSeg"><button data-s="free">Free</button><button data-s="grid">Grid</button></div>
       </div>
@@ -286,7 +307,11 @@
         <div><div class="label">Rival skill</div><div class="hint" id="diffHint">Reads the arena and hunts you now and then</div></div>
         <div class="seg cut" id="diffSeg"><button data-d="rookie">Rookie</button><button data-d="rider">Rider</button><button data-d="legend">Legend</button></div>
       </div>
-      <div class="row">
+      <div class="row" id="lapsRow" hidden>
+        <div><div class="label">Laps</div><div class="hint" id="lapsHint">Main Stadium · first across the line wins</div></div>
+        <div class="seg cut" id="lapsSeg"><button data-l="3">3</button><button data-l="5">5</button><button data-l="7">7</button></div>
+      </div>
+      <div class="row" id="winRow">
         <div><div class="label">Rounds to win</div><div class="hint">First rider to this many takes the match</div></div>
         <div class="seg cut" id="winSeg"><button data-w="3">3</button><button data-w="5">5</button><button data-w="7">7</button></div>
       </div>
