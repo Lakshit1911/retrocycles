@@ -1,0 +1,118 @@
+{
+  "name": "phantom-run-desktop",
+  "productName": "Phantom Run",
+  "version": "0.1.0",
+  "description": "Phantom Run: an anti-gravity night race. Desktop (Electron) build for Steam.",
+  "author": "Phantom Run",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "build-app": "node scripts/build-app.mjs",
+    "start": "npm run build-app && electron .",
+    "start:nosteam": "npm run build-app && electron . --no-steam",
+    "check": "node scripts/check-syntax.mjs",
+    "test": "node --test \"tests/*.test.mjs\"",
+    "test:browser": "npm run build-app && node tests/browser-smoke.mjs",
+    "test:electron": "npm run build-app && electron . --smoke-test --no-steam",
+    "pack": "npm run build-app && electron-builder --dir",
+    "dist:win": "npm run build-app && electron-builder --win --x64",
+    "dist:mac": "npm run build-app && electron-builder --mac --universal",
+    "dist:linux": "npm run build-app && electron-builder --linux --x64"
+  },
+  "phantomRun": {
+    "preferredPort": 47823,
+    "webUrl": "",
+    "steamOverlay": true,
+    "steamRestartIfNecessary": false
+  },
+  "dependencies": {
+    "steamworks.js": "0.4.0"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/michroma": "5.3.0",
+    "electron": "45.2.0",
+    "electron-builder": "26.18.0",
+    "three": "0.128.0"
+  },
+  "build": {
+    "appId": "com.phantomrun.desktop",
+    "productName": "Phantom Run",
+    "copyright": "Copyright (c) Phantom Run",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "npmRebuild": false,
+    "electronLanguages": ["en-US"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "app/**",
+      "achievements.json",
+      "package.json",
+      "!**/*.map"
+    ],
+    "asarUnpack": ["node_modules/steamworks.js/dist/**"],
+    "extraResources": [
+      { "from": "steam_appid.txt", "to": "steam_appid.txt" }
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "dir", "arch": ["x64"] }
+      ],
+      "executableName": "PhantomRun",
+      "icon": "build/icon.png",
+      "files": [
+        "!node_modules/steamworks.js/dist/{linux64,osx}/**",
+        "!node_modules/steamworks.js/dist/win64/*.lib"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Phantom Run",
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["universal"] },
+        { "target": "dir", "arch": ["universal"] }
+      ],
+      "category": "public.app-category.racing-games",
+      "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false,
+      "x64ArchFiles": "**/node_modules/steamworks.js/dist/osx/*",
+      "files": ["!node_modules/steamworks.js/dist/{linux64,win64}/**"]
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-mac.${ext}"
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "dir", "arch": ["x64"] }
+      ],
+      "executableName": "phantom-run",
+      "category": "Game",
+      "icon": "build/icon.png",
+      "synopsis": "Anti-gravity night race with walls of light",
+      "files": ["!node_modules/steamworks.js/dist/{osx,win64}/**"]
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}-x86_64.${ext}"
+    }
+  }
+}
