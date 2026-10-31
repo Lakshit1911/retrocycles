@@ -12,12 +12,13 @@ desktop/
   src/server.js        static server for app/ on http://localhost:<port>
   src/steam.js         steamworks.js wrapper (every call guarded)
   src/window-state.js  remembers size / position / fullscreen / port
-  scripts/build-app.mjs  builds app/ (the offline bundle) from ../index.html, ../css, ../js
+  src/menu.js          macOS application menu template (About, Hide, Quit, View > Toggle Full Screen, Window)
+  scripts/build-app.mjs  builds app/ (the offline bundle) with the shared bundler ../tools/web-bundle.mjs
   achievements.json    achievements to create on the Steamworks partner site
   rich_presence.vdf    rich presence tokens to upload on the partner site
   steam_appid.txt      Steam app id (480 = Valve's Spacewar test app, for development)
   steampipe/           SteamPipe upload templates
-  build/               icon.png (1024 px) and macOS entitlements
+  build/               icon.png (1024 px source), icon.icns (macOS, from `npm run icons`) and macOS entitlements
   tests/               node:test unit tests + Playwright browser smoke test
   app/  dist/          generated (git-ignored)
 ```
@@ -34,19 +35,80 @@ npm start              # build-app + launch (npm run start:nosteam skips Steam)
 ```
 
 `npm run build-app` must run again after any change to `index.html`, `css/` or `js/` (`npm start` does it
-for you). It fails loudly if `index.html` no longer has the three.js CDN tag or the Google Fonts link it
+for you). The bundling itself lives in `../tools/web-bundle.mjs`, shared with the iPhone app (`../mobile/`). It fails loudly if `index.html` no longer has the three.js CDN tag or the Google Fonts link it
 rewrites, or if anything in `index.html` still loads from the network. If the site moves to a new
 three.js release, bump `three` in `package.json` to match (the script checks the revision). If it adds a
 font family or weight, `npm install @fontsource/<family>`; weights are read from the Google Fonts URL.
 
-Keys in the desktop build: **F11** or **Alt+Enter** toggles fullscreen. In development (or with
+Keys in the desktop build: **F11** or **Alt+Enter** toggles fullscreen (macOS: **Ctrl+Cmd+F** or the green
+traffic light, **Cmd+Q** quits, **Cmd+H** hides). Game controllers (Xbox, PlayStation, MFi, Switch Pro) work
+out of the box through the Gamepad API, and keys can be remapped in the race settings (**Controls**). In development (or with
 `PHANTOM_DEBUG=1`) **F12** opens DevTools and **Ctrl+R** reloads.
+
+## Build the Mac app (step by step)
+
+On your Mac (Apple Silicon or Intel, macOS 12 or newer):
+
+1. Install **Node.js 22 LTS** (nodejs.org installer, or `brew install node@22`) and Git (`xcode-select --install`
+   installs Git and the command line tools; full Xcode is not needed for the desktop app).
+2. Get the code and build:
+
+   ```bash
+   git clone https://github.com/Lakshit1911/retrocycles.git
+   cd retrocycles/desktop
+   npm ci                 # exact versions from package-lock.json (Electron, electron-builder, steamworks.js, three, fonts)
+   npm run build-app      # copies the game into desktop/app/ with three.js + fonts vendored
+   npm start              # try it from source first (npm run start:nosteam skips Steam)
+   npm run dist:mac       # universal (Apple Silicon + Intel) app, dmg and zip
+   ```
+
+3. Results in `desktop/dist/`:
+   - `Phantom Run-0.1.0-mac.dmg`: open it and drag Phantom Run into Applications
+   - `Phantom Run-0.1.0-mac.zip`: the same app zipped (for itch.io / direct downloads)
+   - `mac-universal/Phantom Run.app`: the unpacked app (this is what goes into a Steam macOS depot)
+
+   `npm run dist:mac:dir` builds only the `.app` (faster, for local testing).
+
+**The macOS app.** Native menu bar (Phantom Run > About / Hide / Quit ⌘Q, Edit, View > Toggle Full Screen ⌃⌘F,
+Window), a hidden-inset title bar: the traffic lights float over the game, a 30 px strip along the top drags
+the window (double-click zooms), and the HUD and menus start below that strip so it never swallows a click;
+in fullscreen the strip is gone. Quality defaults to **High** on a Mac (pointer is not coarse), with the
+pixel-ratio cap from `js/visuals/config.js` (1.5 on Retina screens). No frame cap: Electron follows the
+display, so ProMotion MacBook Pros run at 120 Hz, and the frame-rate watchdog only reacts to a minimum
+(under 45 fps for 3 s drops one quality level), never to a high frame rate. The icon is
+`build/icon.icns` (all sizes 16 to 1024 px on Apple's 824 px icon grid), generated from `build/icon.png`
+with `npm run icons` (no extra tools needed).
+
+**Gatekeeper (unsigned builds).** Without an Apple Developer ID the app is unsigned. An app you built
+yourself on the same Mac usually opens directly. A copy that was downloaded (AirDrop, browser, Steam) is
+quarantined and macOS says it "cannot be opened" or "is damaged":
+- macOS 15 Sequoia and newer: try to open it once, then System Settings > Privacy & Security > scroll to
+  "Phantom Run was blocked" > **Open Anyway** (right-click > Open no longer bypasses the check).
+- or remove the quarantine flag: `xattr -dr com.apple.quarantine "/Applications/Phantom Run.app"`.
+- If it still will not start on Apple Silicon, build with an ad-hoc signature:
+  `npm run build-app && npx electron-builder --mac --universal -c.mac.identity=-`.
+
+**Signing and notarizing (for anyone else to open it, and for Steam).** Join the Apple Developer Program
+(99 USD/year), then in Xcode > Settings > Accounts > Manage Certificates add a **Developer ID Application**
+certificate (it lands in your login keychain). electron-builder finds it and signs automatically
+(`CSC_NAME="Developer ID Application: Your Name (TEAMID)"` picks one). To notarize:
+
+```bash
+# app-specific password from appleid.apple.com > Sign-In and Security > App-Specific Passwords
+export APPLE_ID="you@example.com" APPLE_APP_SPECIFIC_PASSWORD="abcd-efgh-ijkl-mnop" APPLE_TEAM_ID="ABCDE12345"
+npm run dist:mac -- -c.mac.notarize=true      # or set "notarize": true under build.mac in package.json
+spctl -a -vvv -t install "dist/mac-universal/Phantom Run.app"   # should say: accepted, source=Notarized Developer ID
+xcrun stapler validate "dist/Phantom Run-0.1.0-mac.dmg"
+```
+
+The hardened runtime entitlements in `build/entitlements.mac.plist` (JIT for V8 / WebGL, Steam overlay
+injection) are already set up for this.
 
 ### Packaging
 
 ```bash
 npm run dist:win      # dist/win-unpacked/ + NSIS installer + portable .exe   (build on Windows, or Linux with wine)
-npm run dist:mac      # dist/mac-universal/Phantom Run.app + .dmg            (build on a Mac)
+npm run dist:mac      # dist/mac-universal/Phantom Run.app + .dmg + .zip     (build on a Mac, universal arm64 + x64)
 npm run dist:linux    # dist/linux-unpacked/ + .AppImage
 npm run pack          # unpacked folder for the current OS only
 ```
@@ -88,7 +150,8 @@ dylib. Upload the signed, notarized `.app` to the macOS depot.
   "Online grid unreachable. Solo races still work." and goes straight to solo, as on the web.
 - **Window.** 16:9, 1600x900 by default (shrunk to fit smaller screens), resizable (min 960x540), size,
   position, maximized and fullscreen remembered in `<userData>/window-state.json`, `#040508` background
-  before first paint, no menu bar (macOS keeps the system menu for Cmd+Q / copy-paste), single instance
+  before first paint, no menu bar on Windows / Linux (macOS: the native app menu from `src/menu.js` and a
+  hidden-inset title bar; `preload.js` adds the drag strip and toggles it on fullscreen changes), single instance
   (a second launch focuses the running window). `backgroundThrottling` is off so an online host keeps
   simulating when the window is in the background.
 - **Steam.** `src/steam.js` loads steamworks.js and calls `init(appId)` inside try/catch. Unsupported
@@ -206,9 +269,9 @@ Optional desktop touches for the integrator (all guarded by `window.phantomDeskt
    publish.
 9. **Upload a build** with SteamPipe (below), set it live on a beta branch, install it through Steam,
    and check that achievements unlock and the overlay opens (Shift+Tab).
-10. **Steam Deck**: request Deck compatibility review. Desktop controls are keyboard only, so add a
-    Steam Input configuration (Steamworks > Steam Input) mapping the D-pad to the arrow keys and A to
-    Space before asking for "Verified".
+10. **Steam Deck**: request Deck compatibility review. The game reads controllers itself (Gamepad API:
+    stick / d-pad steer, A or RT boost, LB / RB snap, Start menu, d-pad + A / B in the menus), so pick the
+    "Gamepad" Steam Input template (Steamworks > Steam Input) before asking for "Verified".
 
 ### SteamPipe upload
 
@@ -230,7 +293,8 @@ Optional desktop touches for the integrator (all guarded by `window.phantomDeskt
 
 ```bash
 npm run check          # node --check on every desktop source + ../js
-npm test               # node:test: bundle, server, Steam wrapper, window state, platform.js mapping
+npm test               # node:test: bundle (+ shared bundler, iOS target), server, Steam wrapper, window state,
+                       # platform.js mapping, macOS menu / dmg + zip targets / .icns / title bar
 npm run test:browser   # Playwright Chromium against app/ on http://localhost:8092, online and offline
 npm run test:electron  # real Electron: boots the bundle, Title -> Solo -> race, prints SMOKE_RESULT
 ```
