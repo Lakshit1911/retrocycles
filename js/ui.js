@@ -1,8 +1,13 @@
-/* Menus and online flow: title screen, sign-in, home, solo setup, host/join lobby, leaderboard.
+/* Menus and online flow: title screen, sign-in, home, solo setup, host/join lobby, leaderboard,
+   rider profile (rating, season placement, signature light, accent) and the signature reveal ceremony.
    Firebase loads lazily, so the solo game still runs if the network or Firebase is unreachable. */
 import { Game, RIDERS, DIFF } from './game.js';
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { SFX } from './audio.js';
+import { riderColours, cssOf, numOf, ACCENTS, accentFromHue, hueOf } from './progression/colour.js';
+import { PLACEMENT, DEFAULT as RATING0 } from './progression/rating.js';
+import { seasonId, seasonLabel } from './progression/season.js';
+import { styleVector, band } from './progression/signature.js';
 
 const $ = id => document.getElementById(id);
 const qa = (s, el = document) => [...el.querySelectorAll(s)];
@@ -21,6 +26,7 @@ const online = Promise.all([import('./firebase.js'), import('./net.js')])
 let user = null, profile = null, guest = false, screen = 'title';
 let room = null, roomView = {}, lastStart = null, inMatch = false, matchRoster = null, gone = new Set();
 let authMode = 'in', lbField = 'wins', wakeLock = null;
+let ratedRoster = null, rosterRatings = {}, revealData = null, revealFrom = 'home', revealTimers = [];
 let authReadyResolve; const authReady = new Promise(r => authReadyResolve = r);
 let redirectDone = Promise.resolve(null);
 // Back from a full-page Google sign-in? (flag set by firebase.js just before redirecting; same key here
@@ -37,7 +43,10 @@ const save = () => { try { localStorage.setItem('rc3d-settings', JSON.stringify(
 const myName = () => (profile && profile.name) || (user && user.displayName) || 'YOU';
 // Your Phantom's light colour: the Garage pick, saved with your profile when signed in
 const myColor = () => (profile && Game.colourOf(profile.color) && profile.color) || (Game.colourOf(settings.color) && settings.color) || 'crimson';
-const setAccent = key => document.documentElement.style.setProperty('--accent', Game.colourOf(key).css);
+// Your light: the signature once revealed, else the Garage classic (js/progression/colour.js riderColours)
+const myLight = () => riderColours(user ? {...profile, color:myColor()} : {color:myColor()});
+const setAccentCss = css => document.documentElement.style.setProperty('--accent', css);
+const setAccent = key => setAccentCss(Game.colourOf(key).css);
 
 /* ---------- Helpers ---------- */
 let toastT = 0;
@@ -59,10 +68,11 @@ async function keepAwake(on){
 function show(name, keepResult){
   screen = name;
   $('menu').dataset.screen = name;
-  // The turntable Phantom shows on the title and in the garage; your colour is the UI accent
-  const key = name === 'garage' ? garagePick : myColor();
-  setAccent(key);
-  Game.showcase(name === 'title' || name === 'garage', Game.colourOf(key).hex, name === 'garage' ? VC.showroom.garageDrop : VC.showroom.drop);
+  // The turntable Phantom shows on the title, in the garage and at the signature reveal; your light is the UI accent
+  if (name !== 'reveal') clearReveal();
+  if (name === 'garage') { setAccent(garagePick); Game.showcase(true, Game.colourOf(garagePick).hex, VC.showroom.garageDrop); }
+  else if (name === 'reveal') Game.showcase(true, numOf(REVEAL_NEUTRAL), VC.showroom.garageDrop);
+  else { const c = myLight().primaryHex; setAccentCss(c); Game.showcase(name === 'title', numOf(c), VC.showroom.drop); }
   qa('.screen').forEach(s => s.hidden = s.dataset.screen !== name);
   if (!keepResult) $('result').hidden = true;
   const slot = document.querySelector(`.screen[data-screen="${name}"] [data-slot="settings"]`), blk = $('settingsBlock');
@@ -71,6 +81,8 @@ function show(name, keepResult){
   if (name === 'home') renderHome();
   if (name === 'lobby') renderLobby();
   if (name === 'board') loadBoard(lbField);
+  if (name === 'profile') renderProfile();
+  if (name === 'reveal') playReveal();
   if (name === 'join') { $('joinCode').value = pendingJoin; onCodeInput(); }
   $('menu').scrollTop = 0;
 }
@@ -178,13 +190,15 @@ function initAuth(){
 /* ---------- Home ---------- */
 function renderHome(){
   const signed = !!user;
-  $('whoami').textContent = signed ? `Signed in · ${myName()}` : 'Guest rider · solo only';
+  const rt = signed && liveRating();
+  $('whoami').textContent = signed ? `Signed in · ${myName()}${rt && rt.placed ? ` · ${Math.round(rt.r)}` : ''}` : 'Guest rider · solo only';
   $('authBtn').textContent = signed ? 'Sign out' : 'Sign in';
   $('renameBtn').hidden = !signed;
   $('homeEyebrow').textContent = signed ? 'Rider online' : 'Guest mode';
   $('homeLede').textContent = signed
-    ? `Welcome back, ${myName()}. The grid has been quiet without you.`
+    ? (unseenSignature() ? `Your signature light is ready, ${myName()}. Open your profile to reveal it.` : `Welcome back, ${myName()}. The grid has been quiet without you.`)
     : 'Solo races only. Sign in to host or join a grid and climb the ranks.';
+  $('profileBtn').classList.toggle('dot', !!unseenSignature());
   qa('.tile[data-go="host"], .tile[data-go="join"]').forEach(t => t.classList.toggle('locked', !signed));
 }
 function needAuth(fn){
@@ -269,7 +283,7 @@ Game.hooks.quality = (q, auto) => {
 
 /* ---------- Solo ---------- */
 $('ride').addEventListener('click', () => {
-  save(); keepAwake(true);
+  save(); keepAwake(true); ratedRoster = null;
   Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, name:myName(), color:myColor()});
 });
 
@@ -280,14 +294,20 @@ function showResult(s){
   const title = s.won ? 'YOU OWN THE GRID' : s.winner ? `${s.winner} OWNS THE GRID` : 'MATCH OVER';
   $('result').innerHTML = `<div class="tag eyebrow">${s.online ? 'Online' : 'Solo'} match · ${s.rounds} rounds</div>
     <h3>${esc(title)}</h3><div class="hint">${pick(s.won ? WIN_QUIPS : LOSS_QUIPS)}</div>
-    <div class="rows">${s.table.map(r => `<div class="${r.me ? 'me' : ''}"><i style="background:${r.css}"></i><span>${esc(r.name)}${r.bot ? ' · AI' : ''}${r.me ? ' · you' : ''}</span><b>${r.score}</b></div>`).join('')}</div>`;
+    <div class="rows">${s.table.map(r => `<div class="${r.me ? 'me' : ''}"><i style="background:${r.css}"></i><span>${esc(r.name)}${r.bot ? ' · AI' : ''}${r.me ? ' · you' : ''}</span><b>${r.score}</b></div>`).join('')}</div>
+    <div class="rating-line" id="ratingLine">${user ? '<span class="tag">Rating</span><span class="hint">Updating…</span>' : '<span class="hint">Guest ride · sign in to earn a skill rating and your signature light</span>'}</div>`;
   $('result').style.setProperty('--win', s.winnerCss);
   $('result').hidden = false;
 }
 Game.hooks.end = s => {
   keepAwake(false);
-  if (user && FB) FB.recordMatch(user.uid, myName(), s).catch(e => console.warn('Stats not saved', e));
   showResult(s);
+  if (user && FB) {
+    const uid = user.uid;
+    FB.recordMatch(uid, myName(), s, {opponents:opponentRatings(s)})
+      .then(({report, user:u}) => { if (user && user.uid === uid) { profile = {...profile, ...u}; showRatingChange(report); } })
+      .catch(e => { console.warn('Stats not saved', e); const el = $('ratingLine'); if (el) el.innerHTML = '<span class="hint">Could not save this match to your profile.</span>'; });
+  }
   if (s.online && room) {
     inMatch = false; matchRoster = null; room.stopMatch();
     if (room.isHost) room.endMatch();
@@ -394,7 +414,7 @@ function tryBegin(){
   lastStart = st.id;
   const roster = st.roster || [], me = roster.findIndex(p => p.uid === user.uid);
   if (me < 0) { toast('A match started without you. You are in for the next one.'); return; }
-  inMatch = true; keepAwake(true);
+  inMatch = true; keepAwake(true); primeRatings(roster);
   Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, id:st.id,
     net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b)}});
   room.listenMatch(Game.applySnapshot, Game.addTurnPoint);
@@ -411,7 +431,7 @@ async function hostStart(){
   await busy($('startMatch'), async () => {
     try { await room.begin(start); }
     catch (e) { toast('Could not start: ' + e.message); return; }
-    lastStart = start.id; inMatch = true; matchRoster = roster; gone = new Set(); keepAwake(true);
+    lastStart = start.id; inMatch = true; matchRoster = roster; gone = new Set(); keepAwake(true); primeRatings(roster);
     room.listenInputs(roster, Game.remoteTurn, Game.remoteBoost);
     Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, id:start.id,
       net:{state:s => room.sendState(s), turn:(r, i, n, x, z) => room.logTurn(r, i, n, x, z)}});
@@ -469,6 +489,10 @@ function renderGarage(){
   $('swatches').innerHTML = VC.riders.map(c =>
     `<button class="swatch" role="radio" style="--c:${c.css}" data-c="${c.key}" aria-label="${titleCase(c.key)}" aria-pressed="${c.key === garagePick}" aria-checked="${c.key === garagePick}"${taken.has(c.key) ? ' disabled title="Another rider in this grid has it"' : ''}></button>`).join('');
   $('garageName').textContent = titleCase(garagePick);
+  const sig = user && profile && profile.signature;
+  $('garageHint').textContent = sig
+    ? `Your signature light, ${sig.name}, is your colour. The classic you pick here is your fallback wherever a signature can't be shown.`
+    : 'Your colour is the light your Phantom casts. In a lobby, if someone already rides it, you take the next free one.';
   qa('#swatches .swatch').forEach(b => b.addEventListener('click', () => {
     garagePick = b.dataset.c; setAccent(garagePick); Game.showcase(true, Game.colourOf(garagePick).hex); renderGarage();
   }));
@@ -484,14 +508,181 @@ $('garageBack').addEventListener('click', () => show(garageFrom));
 $('homeGarage').addEventListener('click', () => openGarage('home'));
 $('garageBtn').addEventListener('click', () => openGarage('lobby'));
 
+/* ---------- Rating ---------- */
+// Your rating as it stands this season (a stored rating from last season counts as unplaced until you ride)
+function liveRating(){
+  const rt = profile && profile.rating, season = seasonId();
+  if (!rt || !Number.isFinite(rt.r)) return {r:RATING0.r, rd:RATING0.rd, n:0, placed:false, season, fresh:true};
+  const n = rt.season === season ? rt.n || 0 : 0;
+  return {r:rt.r, rd:rt.rd, n, placed:n >= PLACEMENT, season};
+}
+// Opponent ratings are read when a match starts, so everyone rates against pre-match numbers
+function primeRatings(roster){
+  ratedRoster = roster; rosterRatings = {};
+  if (!FB || !user) return;
+  const uids = roster.filter(p => !p.bot && p.uid && p.uid !== user.uid).map(p => p.uid);
+  if (uids.length) FB.ratingsOf(uids).then(r => { if (ratedRoster === roster) rosterRatings = r; }).catch(() => {});
+}
+// Ratings aligned with the summary table (sorted by score); human rows are matched back to roster seats by name
+function opponentRatings(s){
+  if (!s.online || !ratedRoster) return [];
+  const used = new Set();
+  return s.table.map(row => {
+    if (row.me || row.bot) return null;
+    const i = ratedRoster.findIndex((p, k) => !used.has(k) && !p.bot && p.uid !== (user && user.uid) && String(p.name).toUpperCase() === String(row.name).toUpperCase());
+    if (i < 0) return null;
+    used.add(i);
+    return rosterRatings[ratedRoster[i].uid] || null;
+  });
+}
+function showRatingChange(rep){
+  const el = $('ratingLine');
+  if (!el || !rep) return;
+  if (rep.sigEvent === 'evolve') prevSignature = rep.previousSignature;
+  const d = rep.delta, sign = d > 0 ? '+' : d < 0 ? '−' : '±';
+  const place = rep.placed ? `± ${Math.round(rep.after.rd)}` : `Placement ${rep.placement} / ${PLACEMENT}`;
+  el.innerHTML = `<span class="tag">Rating</span><b class="num">${Math.round(rep.after.r)}</b>
+    <span class="delta ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${sign}${Math.abs(d)}</span><span class="hint">${place}</span>
+    ${rep.sigEvent ? `<button class="ride cut sig-cta" type="button" id="sigCta" style="--sig:${rep.signature.hex}">${rep.sigEvent === 'evolve' ? 'Your light has shifted · see it' : 'Reveal your signature light'}</button>` : ''}`;
+  if (rep.sigEvent) $('sigCta').addEventListener('click', () => openReveal(screen));
+  if (screen === 'home') renderHome();
+}
+
+/* ---------- Profile ---------- */
+const seenKey = () => `pr-sig-seen-${user ? user.uid : ''}`;
+function unseenSignature(){
+  const sig = user && profile && profile.signature;
+  if (!sig) return null;
+  let seen = 0;
+  try { seen = +localStorage.getItem(seenKey()) || 0; } catch (e) {}
+  return (sig.revealedAt || 0) > seen ? sig : null;
+}
+let accentPick = null;
+function renderProfile(){
+  const signed = !!user;
+  $('profGuest').hidden = signed; $('profBody').hidden = !signed;
+  $('profName').textContent = signed ? myName() : 'Guest rider';
+  const rt = liveRating();
+  $('profSeason').textContent = `${seasonLabel(rt.season)} · Rider profile`;
+  if (!signed) return;
+  $('profRating').textContent = Math.round(rt.r);
+  $('profRd').textContent = rt.fresh ? 'Unrated · first match sets it' : `± ${Math.round(rt.rd)}${rt.placed ? '' : ' · provisional'}`;
+  $('profPips').innerHTML = Array.from({length:PLACEMENT}, (_, i) => `<i class="${i < Math.min(rt.n, PLACEMENT) ? 'on' : ''}"></i>`).join('');
+  $('profPlace').textContent = rt.placed ? `Placed · ${rt.n} rated` : `${rt.n} / ${PLACEMENT} matches`;
+  const ss = (profile.seasons && profile.seasons[rt.season]) || {};
+  const played = (ss.matches || 0) + (ss.soloMatches || 0), won = (ss.wins || 0) + (ss.soloWins || 0);
+  $('profWins').textContent = won;
+  $('profMatches').textContent = `win${won === 1 ? '' : 's'} · ${played} match${played === 1 ? '' : 'es'}`;
+  const sig = profile.signature && cssOf(profile.signature.hex) ? profile.signature : null;
+  $('profSig').classList.toggle('locked', !sig);
+  $('profSig').style.setProperty('--sig', sig ? sig.hex : 'var(--line-strong)');
+  $('profSigName').textContent = sig ? sig.name : 'Unrevealed';
+  const left = Math.max(0, PLACEMENT - rt.n);
+  if (sig) {
+    const v = styleVector(ss), b = band(rt.r);
+    $('profSigHint').textContent = sig.season === rt.season
+      ? `${v.archetype} · ${b.tier} · ${sig.season}`
+      : `Revealed ${sig.season}. Shifts after ${left} more rated match${left === 1 ? '' : 'es'} this season.`;
+  } else $('profSigHint').textContent = `Revealing after ${left} more rated match${left === 1 ? '' : 'es'}. How you ride sets the hue; how well, the brightness.`;
+  $('profReplay').hidden = !sig;
+  $('profReplay').textContent = unseenSignature() ? 'Reveal' : 'Replay';
+  accentPick = (profile.accent && cssOf(profile.accent.hex)) || null;
+  renderAccents();
+}
+function renderAccents(){
+  const cur = accentPick || myLight().accentHex;
+  $('accentSwatches').innerHTML = ACCENTS.map(c =>
+    `<button class="swatch" role="radio" style="--c:${c}" data-a="${c}" aria-label="Accent ${c}" aria-checked="${c === accentPick}" aria-pressed="${c === accentPick}"></button>`).join('');
+  $('accentHue').value = Math.round(hueOf(cur));
+  $('accentChip').style.setProperty('--c', cur);
+  $('accentChip').style.setProperty('--p', myLight().primaryHex);
+}
+$('accentSwatches').addEventListener('click', e => {
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  accentPick = b.dataset.a; renderAccents();
+});
+$('accentHue').addEventListener('input', e => {
+  accentPick = accentFromHue(+e.target.value);
+  qa('#accentSwatches .swatch').forEach(b => { b.setAttribute('aria-checked', 'false'); b.setAttribute('aria-pressed', 'false'); });
+  $('accentChip').style.setProperty('--c', accentPick);
+});
+$('accentSave').addEventListener('click', () => {
+  if (!user || !FB || !accentPick) return toast(accentPick ? 'Sign in to save an accent.' : 'Pick an accent first.');
+  busy($('accentSave'), async () => {
+    try { await FB.saveAccent(user.uid, accentPick); profile = {...profile, accent:{hex:accentPick}}; toast('Accent saved.'); }
+    catch (e) { toast('Could not save your accent: ' + e.message); }
+  });
+});
+$('profileBtn').addEventListener('click', () => show('profile'));
+$('profSignIn').addEventListener('click', () => { setAuthMode('in'); show('auth'); });
+$('profReplay').addEventListener('click', () => openReveal('profile'));
+
+/* ---------- Signature reveal ceremony ---------- */
+// The turntable Phantom starts in neutral light, then takes the signature colour as the name resolves
+const REVEAL_NEUTRAL = '#8a93a6';
+let prevSignature = null, revealKeepResult = false;   // last season's signature, remembered when a match evolves it
+function openReveal(from){
+  const sig = profile && profile.signature;
+  if (!sig || !cssOf(sig.hex)) return;
+  revealFrom = ['home', 'solo', 'lobby', 'profile'].includes(from) ? from : 'home';
+  if (revealFrom === 'lobby' && !room) revealFrom = 'home';
+  revealKeepResult = !$('result').hidden;
+  revealData = {sig, prev:prevSignature && prevSignature.season !== sig.season ? prevSignature : null};
+  show('reveal');
+}
+function clearReveal(){ revealTimers.forEach(clearTimeout); revealTimers = []; }
+function playReveal(){
+  clearReveal();
+  const { sig, prev } = revealData || {};
+  const el = document.querySelector('.reveal-screen');
+  if (!sig) return;
+  const rt = liveRating(), ss = (profile.seasons && profile.seasons[sig.season]) || {};
+  el.style.setProperty('--sig', sig.hex);
+  $('revealEyebrow').textContent = prev ? `${seasonLabel(sig.season)} · your light has shifted` : `Placement complete · ${seasonLabel(sig.season)}`;
+  $('revealKicker').textContent = prev ? 'Your signature light, evolved' : 'Your signature light';
+  $('revealFrom').hidden = !prev;
+  if (prev) $('revealFrom').innerHTML = `From <i class="sig-dot" style="--c:${esc(prev.hex)}"></i>${esc(prev.name)}`;
+  $('revealName').innerHTML = [...sig.name].map((ch, i) => `<span style="--i:${i}">${ch === ' ' ? '&nbsp;' : esc(ch)}</span>`).join('');
+  $('revealName').setAttribute('aria-label', sig.name);
+  $('revealMeta').textContent = `${sig.hex} · ${styleVector(ss).archetype} · ${band(rt.r).tier} tier`;
+  const at = (ms, fn) => revealTimers.push(setTimeout(fn, ms));
+  el.classList.remove('lit', 'named', 'done');
+  if (reduceMotion) { el.classList.add('lit', 'named', 'done'); Game.showcase(true, numOf(sig.hex), VC.showroom.garageDrop); setAccentCss(sig.hex); }
+  else {
+    void el.offsetWidth;   // restart the CSS animations on replay
+    at(600, () => el.classList.add('lit'));
+    at(1700, () => { Game.showcase(true, numOf(sig.hex), VC.showroom.garageDrop); setAccentCss(sig.hex); SFX.click(); });
+    at(1900, () => el.classList.add('named'));
+    at(1900 + sig.name.length * 90 + 700, () => el.classList.add('done'));
+  }
+  try { localStorage.setItem(seenKey(), String(sig.revealedAt || Date.now())); } catch (e) {}
+}
+$('revealDone').addEventListener('click', () => {
+  clearReveal();
+  if (revealFrom === 'lobby' && !room) revealFrom = 'home';
+  show(revealFrom, revealKeepResult);
+  if (revealKeepResult) $('result').hidden = false;
+});
+
 /* ---------- Leaderboard ---------- */
 async function loadBoard(field){
   lbField = field;
   qa('[data-lb]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lb === field)));
-  const ol = $('ranks');
+  const ol = $('ranks'), season = seasonId();
+  $('lbNote').hidden = field !== 'rating';
+  $('lbNote').textContent = `${seasonLabel(season)} · skill rating · riders with ${PLACEMENT}+ rated matches this season`;
   ol.innerHTML = '<li class="empty">Loading the hall of light…</li>';
   if (!(await online)) { ol.innerHTML = '<li class="empty">Leaderboard is offline right now.</li>'; return; }
   try {
+    if (field === 'rating') {
+      const rows = await FB.topRated(season);
+      if (lbField !== field) return;
+      ol.innerHTML = rows.length ? rows.map((r, i) => {
+        const sig = r.signature && cssOf(r.signature.hex);
+        return `<li class="${user && r.uid === user.uid ? 'me' : ''}"><span class="pos">#${i + 1}</span><span class="nm">${sig ? `<i class="sig-dot" style="--c:${sig}" title="${esc(r.signature.name || '')}"></i>` : ''}${esc(r.name || 'RIDER')}</span><span class="sc">${Math.round(r.rating.r)}<small>± ${Math.round(r.rating.rd)} · ${r.rating.n} rated</small></span></li>`;
+      }).join('') : `<li class="empty">No placed riders yet this season. Finish ${PLACEMENT} rated matches to be the first.</li>`;
+      return;
+    }
     const rows = await FB.topRiders(field);
     if (lbField !== field) return;
     ol.innerHTML = rows.length ? rows.map((r, i) => {

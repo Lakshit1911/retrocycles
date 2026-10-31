@@ -127,6 +127,7 @@
       <div class="who">
         <span class="tag" id="whoami">Guest rider</span>
         <span class="who-actions">
+          <button class="link" id="profileBtn" type="button">Profile</button>
           <button class="link" id="homeGarage" type="button">Garage</button>
           <button class="link" id="renameBtn" type="button" hidden>Rename</button>
           <button class="link" id="authBtn" type="button">Sign in</button>
@@ -202,6 +203,57 @@
       </div>
     </section>
 
+    <!-- Profile: rating, season placement, signature light, accent -->
+    <section class="screen profile-screen" data-screen="profile" hidden>
+      <div>
+        <button class="link back" data-back="home">← Back</button>
+        <div class="tag eyebrow" id="profSeason">Season</div>
+        <h2 id="profName">Rider</h2>
+      </div>
+      <div class="prof-guest" id="profGuest" hidden>
+        <p class="lede">Guest riders race solo without a rating. Sign in to earn a skill rating, a season placement and your own signature light.</p>
+        <button class="ride cut" id="profSignIn" type="button">Sign in</button>
+      </div>
+      <div class="prof-body" id="profBody">
+        <div class="stats">
+          <div class="stat"><span class="tag">Rating</span><b class="num" id="profRating">1500</b><small id="profRd">± 350</small></div>
+          <div class="stat"><span class="tag">Placement</span><div class="pips5" id="profPips" aria-hidden="true"></div><small id="profPlace">0 / 5 matches</small></div>
+          <div class="stat"><span class="tag">This season</span><b class="num" id="profWins">0</b><small id="profMatches">wins · 0 matches</small></div>
+        </div>
+        <div class="sig-card" id="profSig">
+          <div class="sig-swatch" id="profSigSwatch" aria-hidden="true"></div>
+          <div class="sig-text">
+            <div class="tag">Signature light</div>
+            <div class="sig-name" id="profSigName">Unrevealed</div>
+            <div class="hint" id="profSigHint"></div>
+          </div>
+          <button class="ghost cut" id="profReplay" type="button" hidden>Replay</button>
+        </div>
+        <div class="accent-block">
+          <div class="row-head"><div><div class="label">Accent</div><div class="hint">A second light for your Phantom's trim. Pick one or slide through every hue.</div></div>
+            <span class="accent-chip" id="accentChip" aria-hidden="true"></span></div>
+          <div class="swatches accents" id="accentSwatches" role="radiogroup" aria-label="Accent colour"></div>
+          <input class="hue" type="range" id="accentHue" min="0" max="359" step="1" aria-label="Accent hue">
+          <button class="ride cut" id="accentSave" type="button">Save accent</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- The colour ritual: signature reveal ceremony (the turntable Phantom takes the light) -->
+    <section class="screen reveal-screen" data-screen="reveal" hidden aria-labelledby="revealName">
+      <div class="reveal-top">
+        <div class="tag eyebrow" id="revealEyebrow">Placement complete</div>
+        <div class="tag reveal-kicker" id="revealKicker">Your signature light</div>
+      </div>
+      <div class="reveal-panel">
+        <div class="reveal-from tag" id="revealFrom" hidden></div>
+        <div class="reveal-beam" aria-hidden="true"><i></i></div>
+        <h2 class="reveal-name" id="revealName" aria-live="polite"></h2>
+        <div class="tag reveal-meta" id="revealMeta"></div>
+        <button class="ride cut" id="revealDone" type="button">Ride in it</button>
+      </div>
+    </section>
+
     <!-- Leaderboard -->
     <section class="screen" data-screen="board" hidden>
       <div>
@@ -212,7 +264,9 @@
       <div class="seg tabs cut">
         <button data-lb="wins" aria-pressed="true">Online wins</button>
         <button data-lb="soloWins" aria-pressed="false">Solo wins</button>
+        <button data-lb="rating" aria-pressed="false">Rating</button>
       </div>
+      <div class="hint lb-note" id="lbNote" hidden></div>
       <ol class="ranks" id="ranks"></ol>
     </section>
 
