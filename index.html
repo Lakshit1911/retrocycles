@@ -7,6 +7,11 @@
 <meta name="description" content="Phantom Run: an anti-gravity night race. Race AI rivals or host an online grid with a 5-character code.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Phantom Run">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Phantom Run</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2305070d'/%3E%3Cpath d='M8 48h20V24h28' fill='none' stroke='%2339e6ff' stroke-width='6'/%3E%3Ccircle cx='56' cy='24' r='5' fill='%23ff9d2e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -42,7 +47,7 @@
       <div class="meter cut"><div id="nrg"></div></div>
       <div class="meter-row"><span class="tag">Boost charge</span><span class="tag" id="slip">Slipstream</span></div>
     </div>
-    <div class="hints tag"><div><b>C</b> camera · <span id="camLabel">Chase</span></div><div><b>P</b> menu · <b>M</b> <span id="muteLabel">sound on</span></div></div>
+    <div class="hints tag"><div><b data-keys="camera" data-first>C</b> camera · <span id="camLabel">Chase</span></div><div><b data-keys="pause" data-first>P</b> menu · <b data-keys="mute" data-first>M</b> <span id="muteLabel">sound on</span></div></div>
   </div>
 </div>
 
@@ -146,11 +151,11 @@
       <div data-slot="settings"></div>
       <button class="ride cut" id="ride">RIDE</button>
       <div class="keys">
-        <div><span id="kTurn">Steer (hold)</span><span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></span></div>
-        <div id="kSnap"><span>Snap 90°</span><span><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></span></div>
-        <div><span>Boost</span><span><kbd>Space</kbd> / <kbd>W</kbd></span></div>
-        <div><span>Camera</span><kbd>C</kbd></div>
-        <div><span>Menu / Sound</span><span><kbd>P</kbd> <kbd>M</kbd></span></div>
+        <div><span id="kTurn">Steer (hold)</span><span data-keys="left,right"><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></span></div>
+        <div id="kSnap"><span>Snap 90°</span><span data-keys="snapLeft,snapRight" data-slots="1"><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></span></div>
+        <div><span>Boost</span><span data-keys="boost"><kbd>Space</kbd> / <kbd>W</kbd></span></div>
+        <div><span>Camera</span><span data-keys="camera"><kbd>C</kbd></span></div>
+        <div><span>Menu / Sound</span><span data-keys="pause,mute" data-slots="1"><kbd>P</kbd> <kbd>M</kbd></span></div>
         <div><span>Charge boost</span><span>ride beside a wall</span></div>
         <div><span>Phone</span><span id="kPhone">hold ◀ ▶ to steer · swipe to snap</span></div>
       </div>
@@ -297,6 +302,10 @@
       <div class="row device">
         <div><div class="label">Graphics</div><div class="hint" id="qualityHint">This device only: shadows, bloom, resolution</div></div>
         <div class="seg cut" id="qualitySeg"><button data-q="low">Low</button><button data-q="medium">Medium</button><button data-q="high">High</button></div>
+      </div>
+      <div class="row device controls-row">
+        <div><div class="label">Controls</div><div class="hint">Remap keys · game controller layout</div></div>
+        <button class="ghost cut" id="controlsBtn" type="button">Remap</button>
       </div>
     </div>
 
