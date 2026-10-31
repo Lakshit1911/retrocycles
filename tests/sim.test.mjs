@@ -234,6 +234,45 @@ test('host input queue: in order, starving holds steering, backlog catches up', 
   queuePush(Q, 0, 'zz');   // stale duplicates are ignored
   assert(!Q.buf.has(0));
 });
+test('prediction + reconciliation: the guest lands where the host has it (latency, batching)', () => {
+  // Host world and guest world with the same static walls; batches reach the host LAT ticks late
+  const LAT = 7, host = F.createWorld({seed:2}), guest = F.createWorld({seed:2});
+  for (const w of [host, guest]) { F.addWall(w, [-60, -7, 60, -7]); F.addWall(w, [-60, 6, 60, 6]); }
+  const hr = F.addRider(host, {x:-55, z:0, h:0}), gr = F.addRider(guest, {x:-55, z:0, h:0, ghost:true});
+  const Q = inputQueue(), hist = [], wire = [];
+  let seq = -1, out = '', outQ = 0, snaps = [];
+  for (let t = 0; t < 320; t++) {
+    // guest: predict one tick, batch the input every 3 ticks
+    const inp = {steer:[1, -1, -1, 1, 0][Math.floor(t / 12) % 5], boost:t % 200 > 150, snap:t === 250 ? -1 : t === 254 ? 1 : 0};
+    hist[++seq] = inp; F.drive(guest, gr, inp);
+    if (!out) outQ = seq;
+    out += encodeIn(inp.steer, inp.boost, inp.snap);
+    if (out.length >= 3) { wire.push({at:t + LAT, q:outQ, s:out}); out = ''; }
+    // host: deliver, step one tick, snapshot every 4 ticks (arrives LAT ticks later)
+    while (wire.length && wire[0].at <= t) { const m = wire.shift(); queuePush(Q, m.q, m.s); }
+    { const inp = []; inp[hr.id] = queueTake(Q); F.step(host, inp); }
+    if (t % 4 === 0) snaps.push({at:t + LAT, a:F.pack(hr).concat(Q.ack)});
+    while (snaps.length && snaps[0].at <= t) {
+      const a = snaps.shift().a;
+      F.unpack(gr, a);
+      for (let q = a[12] + 1; q <= seq; q++) F.drive(guest, gr, hist[q]);
+    }
+  }
+  assert(hr.alive, `host rider crashed at ${hr.x.toFixed(1)},${hr.z.toFixed(1)}`);
+  // Flush: let the host consume everything, then the guest reconciles once more
+  if (out) queuePush(Q, outQ, out);
+  for (const m of wire) queuePush(Q, m.q, m.s);
+  let extra = 0;
+  while (Q.buf.size) { const inp = []; inp[hr.id] = queueTake(Q, 1e9); F.step(host, inp); extra++; }
+  const a = F.pack(hr).concat(Q.ack);
+  F.unpack(gr, a);
+  for (let q = a[12] + 1; q <= seq; q++) F.drive(guest, gr, hist[q]);
+  // the host starved at the start (no inputs yet): those ticks put it slightly ahead on the same path
+  const starve = 320 + extra - (seq + 1);
+  assert(starve >= 0 && starve <= 2 * LAT + 3, `starved ticks ${starve}`);
+  near(Math.abs(wrap(gr.h - hr.h)), 0, .02, 'heading');
+  near(Math.hypot(gr.x - hr.x, gr.z - hr.z), 0, .05, 'position after reconciling');
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
