@@ -1,5 +1,5 @@
 {
-  "_comment": "Phantom Run Steam achievements. Create each one on the Steamworks partner site (App Admin > Stats & Achievements > Achievements) with exactly this API name, then publish. Unlock rules live in js/platform.js (ACHIEVEMENTS) and run on the client from local progress counters; keep both files in sync (npm test in desktop/ checks it). Icons: 256x256 JPG, one for achieved and one greyed out for unachieved.",
+  "_comment": "Phantom Run Steam achievements. Create each one on the Steamworks partner site (Edit Steamworks Settings > Stats & Achievements > Achievements) with exactly this API name, then publish. Unlock rules live in js/platform.js (ACHIEVEMENTS) and run on the client from local progress counters; keep both files in sync (npm test in desktop/ checks it). Icons: 256x256 JPG, one for achieved and one greyed out for unachieved.",
   "achievements": [
     {
       "apiName": "ACH_FIRST_ROUND",

@@ -1,0 +1,14 @@
+// Windows depot (64-bit). Copy to depot_build_<depot id>.vdf and update the line in app_build_*.vdf.
+// Steam launch option: executable "PhantomRun.exe", OS Windows, 64-bit only.
+"DepotBuild"
+{
+	"DepotID"	"<DEPOT_ID_WINDOWS>"
+	"ContentRoot"	"../dist/win-unpacked/"
+	"FileMapping"
+	{
+		"LocalPath"	"*"
+		"DepotPath"	"."
+		"Recursive"	"1"
+	}
+	"FileExclusion"	"*.pdb"
+}

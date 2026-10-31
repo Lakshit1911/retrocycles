@@ -1,0 +1,14 @@
+// Linux depot (x86_64, also what Steam Deck runs natively). Copy to depot_build_<depot id>.vdf.
+// Steam launch option: executable "phantom-run", OS Linux + SteamOS. Add "--no-sandbox" to the
+// arguments if the game fails to start inside the Steam Linux Runtime (see desktop/README.md).
+"DepotBuild"
+{
+	"DepotID"	"<DEPOT_ID_LINUX>"
+	"ContentRoot"	"../dist/linux-unpacked/"
+	"FileMapping"
+	{
+		"LocalPath"	"*"
+		"DepotPath"	"."
+		"Recursive"	"1"
+	}
+}
