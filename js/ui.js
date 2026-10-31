@@ -4,6 +4,7 @@
 import { Game, RIDERS, DIFF } from './game.js';
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { SFX } from './audio.js';
+import { emit } from './platform.js';
 import { riderColours, cssOf, numOf, ACCENTS, accentFromHue, hueOf } from './progression/colour.js';
 import { PLACEMENT, DEFAULT as RATING0 } from './progression/rating.js';
 import { seasonId, seasonLabel } from './progression/season.js';
@@ -67,6 +68,7 @@ async function keepAwake(on){
 
 function show(name, keepResult){
   screen = name;
+  emit('menu', {screen:name});
   $('menu').dataset.screen = name;
   // The turntable Phantom shows on the title, in the garage and at the signature reveal; your light is the UI accent
   if (name !== 'reveal') clearReveal();
@@ -308,6 +310,7 @@ function showResult(s){
   $('result').hidden = false;
 }
 Game.hooks.end = s => {
+  emit('match-end', {won:s.won, online:s.online, rounds:s.rounds, roundsWon:s.roundsWon, diff:s.diff});
   keepAwake(false);
   showResult(s);
   if (user && FB) {
@@ -334,6 +337,7 @@ async function hostGrid(){
   await busy(tile, async () => {
     try {
       room = await NET.Room.host(user.uid, myName(), cfgOut(), myColor());
+      emit('join-room', {host:true, code:room.code});
       watchRoom(); show('lobby');
     } catch (e) { toast('Could not open a grid: ' + (e.message || e)); room = null; }
   });
@@ -354,6 +358,7 @@ $('joinForm').addEventListener('submit', e => {
   needAuth(() => busy($('joinGo'), async () => {
     try {
       room = await NET.Room.join(code, user.uid, myName(), myColor());
+      emit('join-room', {host:false, code});
       pendingJoin = '';
       if (location.search) history.replaceState(null, '', location.pathname);
       watchRoom(); show('lobby');
@@ -383,6 +388,7 @@ function watchRoom(){
   r.watch({
     host:v => { roomView.host = v; if (screen === 'lobby') renderLobby(); },
     closed:() => {
+      emit('leave-room');
       if (room !== r) return;
       const wasIn = inMatch;
       room.leave(); room = null; inMatch = false; keepAwake(false);
@@ -449,6 +455,7 @@ $('startMatch').addEventListener('click', hostStart);
 async function leaveRoom(){
   if (!room) return;
   const r = room; room = null; inMatch = false; matchRoster = null;
+  emit('leave-room');
   await r.leave();
 }
 $('leaveRoom').addEventListener('click', async () => { await leaveRoom(); show('home'); });

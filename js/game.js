@@ -13,6 +13,7 @@ import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, updatePoseFree, headingYaw } from './visuals/riders.js';
 import { createPipeline, lin, linHex, defaultQuality } from './visuals/renderer.js';
 import { SFX } from './audio.js';
+import { emit } from './platform.js';   // achievements / rich presence on desktop; no-op in the browser
 import { createArena } from './visuals/arena.js';
 import { createTrails } from './visuals/trails.js';
 import { createEffects } from './visuals/effects.js';
@@ -64,7 +65,7 @@ const trails = createTrails(scene);
 const fx = createEffects(scene, camera, reduceMotion);
 const rig = createCameraRig(camera, reduceMotion);
 renderer.localClippingEnabled = true;   // spawn scan clips each craft above a rising plane
-let slowT = 0;                           // visual-only slow motion after the local rider's own crash
+let slowT = 0, wasBoosting = 0;                           // visual-only slow motion after the local rider's own crash
 
 /* ---------- Grid occupancy ---------- */
 const grid = new Int8Array(N * N), stamp = new Uint32Array(N * N); let stampId = 1;
@@ -280,6 +281,7 @@ function crash(b){
     SFX.boom(b === player ? 1 : Math.max(.12, .6 - dist / 120));
   }
   if (b === player && state === 'run') {
+    emit('crash');
     rig.impact(VC.camera.shake.crash);
     if (!reduceMotion) slowT = VC.effects.slowMotion.duration;
     const others = bikes.filter(o => o.alive).length;
@@ -765,6 +767,7 @@ function begin(){
   keys.boost = keys.l = keys.r = false; keys.snapQ.length = 0; sentBoost = false; lastW = -1; snapAcc = 0;
   $('tL').setAttribute('aria-label', isFree() ? 'Steer left' : 'Turn left');
   $('tR').setAttribute('aria-label', isFree() ? 'Steer right' : 'Turn right');
+  emit('match-start', {online:mode !== 'solo', host:mode === 'host', riders:bikes.length, diff:cfg.diff});
   if (mode === 'guest') { state = 'wait'; setMsg('SYNCING', 'linking to the host grid'); }
   else nextRound();
 }
@@ -787,7 +790,7 @@ function nextRound(){
   pushState();
 }
 function roundMsg(w){
-  if (w === player) { SFX.hit('win'); setMsg('ROUND WON', `${scores[player.id]} of ${cfg.win} to own the grid`); }
+  if (w === player) { SFX.hit('win'); emit('round-win'); setMsg('ROUND WON', `${scores[player.id]} of ${cfg.win} to own the grid`); }
   else if (w) setMsg(w.name, 'takes the round');
   else setMsg('NO WINNER', 'the grid keeps this one');
 }
@@ -969,6 +972,8 @@ function frame(now){
   if (mode === 'host' && playing()) { snapAcc += real; if (snapAcc >= SNAP_DT) pushState(); }
   const pl = player && player.alive;
   const boosting = pl && state === 'run' && keys.boost && player.energy > .02 ? 1 : 0;
+  if (boosting && !wasBoosting) emit('boost');
+  wasBoosting = boosting;
   const speedK = pl && state === 'run' ? Math.max(0, Math.min(1, (player.mul - 1) / .7)) : 0;
   fx.update(vdt, bikes, boosting);
   // Camera follows you; once you're out it switches to a surviving rider
