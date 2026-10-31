@@ -902,7 +902,7 @@ function circuitBoard(){
     const t = el.querySelector('.lapc');
     if (t) t.textContent = b.gone ? 'OUT' : r.done ? `P${r.place}` : `L${Math.min(cfg.laps, FS.lapOf(fw, r) + 1)}`;
   });
-  $('aliveLabel').textContent = fw.track.name;
+  $('aliveLabel').textContent = 'Circuit';
   const r = player.fr;
   if (r) $('roundLabel').textContent = r.done ? 'FINISHED' : `LAP ${Math.min(cfg.laps, FS.lapOf(fw, r) + 1)}/${cfg.laps}`;
 }
