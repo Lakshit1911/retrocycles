@@ -1,5 +1,22 @@
 {
   "rewrites": [
     { "source": "/__/auth/:path*", "destination": "https://retrocycles-e9965.firebaseapp.com/__/auth/:path*" }
+  ],
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache" },
+        { "key": "Service-Worker-Allowed", "value": "/" },
+        { "key": "Content-Type", "value": "text/javascript; charset=utf-8" }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" },
+        { "key": "Cache-Control", "value": "no-cache" }
+      ]
+    }
   ]
 }

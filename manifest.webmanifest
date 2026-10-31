@@ -1,0 +1,21 @@
+{
+  "id": "./",
+  "name": "Phantom Run",
+  "short_name": "Phantom Run",
+  "description": "An anti-gravity night race. Race AI rivals or host an online grid with a 5-character code.",
+  "lang": "en",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#040508",
+  "theme_color": "#040508",
+  "categories": ["games"],
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"}
+  ]
+}
