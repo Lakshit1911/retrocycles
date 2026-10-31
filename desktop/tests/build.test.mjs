@@ -18,7 +18,8 @@ before(() => {
 after(() => fs.rmSync(out, {recursive:true, force:true}));
 
 test('copies the site', () => {
-  for (const f of ['index.html', 'css/style.css', 'js/ui.js', 'js/game.js', 'js/platform.js', 'js/vendor/three-r128/EffectComposer.js']) {
+  for (const f of ['index.html', 'css/style.css', 'js/ui.js', 'js/game.js', 'js/platform.js', 'js/vendor/three-r128/EffectComposer.js',
+    'js/input/gamepad.js', 'js/input/bindings.js', 'manifest.webmanifest', 'icons/icon-192.png']) {
     assert.ok(fs.existsSync(path.join(out, f)), `${f} missing`);
   }
 });
@@ -52,13 +53,42 @@ test('index.html loads nothing from the network', () => {
   assert.deepEqual(remote, []);
 });
 
-test('platform bridge is loaded before the UI module', () => {
+test('platform bridge is loaded before the UI module (or imported by it)', () => {
   const p = html.indexOf('src="js/platform.js"'), ui = html.indexOf('src="js/ui.js"');
-  assert.ok(p > 0 && p < ui);
+  const imported = /from ['"]\.\/platform\.js['"]/.test(fs.readFileSync(path.join(out, 'js', 'ui.js'), 'utf8'));
+  assert.ok(imported || (p > 0 && p < ui));
 });
 
 test('only Firebase stays online', () => {
   const info = JSON.parse(fs.readFileSync(path.join(out, 'build-info.json'), 'utf8'));
   assert.equal(info.three, '0.128.0');
+  assert.equal(info.target, 'desktop');
   for (const h of info.remoteHosts) assert.match(h, /(^|\.)gstatic\.com$|firebaseio\.com$|firebaseapp\.com$|googleapis\.com$/, h);
+});
+
+test('the desktop wrapper and the shared bundler agree', async () => {
+  const shared = await import('../../tools/web-bundle.mjs');
+  const { buildApp } = await import('../scripts/build-app.mjs');
+  assert.equal(typeof buildApp, 'function');
+  assert.deepEqual(shared.TARGETS, ['desktop', 'ios']);
+  assert.deepEqual(shared.parseFamilies('https://fonts.googleapis.com/css2?family=Michroma&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap'),
+    [{family:'Michroma', weights:['400']}, {family:'IBM Plex Mono', weights:['400', '500', '600']}]);
+  assert.deepEqual(shared.remoteResources('<script src="https://x.test/a.js"></script><link rel="stylesheet" href="css/a.css">'), ['https://x.test/a.js']);
+});
+
+test('shared bundler: iOS target, refuses dangerous outputs and unknown targets', async () => {
+  const { buildBundle, BuildError, REPO } = await import('../../tools/web-bundle.mjs');
+  const iosOut = fs.mkdtempSync(path.join(os.tmpdir(), 'phantom-ios-'));
+  try {
+    const r = await buildBundle({out:iosOut, deps:DESKTOP, target:'ios', quiet:true});
+    assert.equal(r.info.target, 'ios');
+    const ih = fs.readFileSync(path.join(iosOut, 'index.html'), 'utf8');
+    assert.match(ih, /vendor\/three\/three\.min\.js/);
+    assert.ok(fs.existsSync(path.join(iosOut, 'js', 'mobile.js')));
+  } finally { fs.rmSync(iosOut, {recursive:true, force:true}); }
+  await assert.rejects(buildBundle({out:REPO, deps:DESKTOP, quiet:true}), BuildError);
+  await assert.rejects(buildBundle({out:path.join(os.tmpdir(), 'phantom-x'), deps:DESKTOP, target:'android', quiet:true}), /Unknown target/);
+  const noDeps = fs.mkdtempSync(path.join(os.tmpdir(), 'phantom-nodeps-'));
+  try { await assert.rejects(buildBundle({out:path.join(noDeps, 'out'), deps:noDeps, quiet:true}), /npm package "three" is missing/); }
+  finally { fs.rmSync(noDeps, {recursive:true, force:true}); }
 });
