@@ -1,4 +1,4 @@
-/* Firebase: auth (email/password + Google), rider profiles, match stats and leaderboard. */
+/* Firebase: auth (email/password + Google), rider profiles, match stats, skill rating and leaderboard. */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
@@ -7,9 +7,11 @@ import {
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getDatabase, ref, child, get, set, update, remove, push, onValue, onChildAdded,
-  onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast
+  onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast, startAt, endAt
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
 import { firebaseConfig } from './config.js';
+import { applyMatch } from './progression/record.js';
+import { cssOf } from './progression/colour.js';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -80,19 +82,39 @@ export async function renameRider(uid, name){
   return n;
 }
 export const setColor = (uid, key) => update(ref(db, `users/${uid}`), {color:key});
-export function recordMatch(uid, name, s){
-  return runTransaction(ref(db, `users/${uid}`), u => {
-    u = u || {};
-    u.name = cleanName(name);
-    for (const k of ['wins', 'matches', 'rounds', 'soloWins', 'soloMatches']) u[k] = u[k] || 0;
-    if (s.online) { u.matches++; u.rounds += Math.min(s.roundsWon, 7); if (s.won) u.wins++; }
-    else { u.soloMatches++; if (s.won) u.soloWins++; }
-    return u;
+/* Record a finished match for the signed-in rider: lifetime counters, season stats, Glicko-2 rating and,
+   after placement, the signature colour (js/progression/record.js). s: the game summary (hooks.end), which may
+   carry s.metrics (docs/progression.md). ctx.opponents: array aligned with s.table, {r, rd} for human rivals.
+   Resolves to {report, user}: report has before/after/delta, placement and sigEvent ('reveal' | 'evolve' | null). */
+export async function recordMatch(uid, name, s, ctx = {}){
+  let last = null;
+  const res = await runTransaction(ref(db, `users/${uid}`), u => {
+    last = applyMatch(u, s, {uid, name:cleanName(name), opponents:ctx.opponents, now:Date.now()});
+    return last.user;
   });
+  if (!res.committed || !last) throw new Error('Match not recorded');
+  return {report:last.report, user:res.snapshot.val()};
 }
+/* Live ratings of other riders, read at match start so everyone rates against pre-match numbers. */
+export async function ratingsOf(uids){
+  const out = {};
+  await Promise.all([...new Set(uids)].filter(Boolean).map(async id => {
+    try { const v = (await get(ref(db, `users/${id}/rating`))).val(); if (v && Number.isFinite(v.r)) out[id] = {r:v.r, rd:v.rd}; }
+    catch (e) {}
+  }));
+  return out;
+}
+export const saveAccent = (uid, hex) => set(ref(db, `users/${uid}/accent`), {hex:cssOf(hex)});
 export async function topRiders(field){
   const snap = await get(query(ref(db, 'users'), orderByChild(field), limitToLast(20)));
   const rows = [];
   snap.forEach(c => { const v = c.val(); if ((v[field] || 0) > 0) rows.push({uid:c.key, ...v}); });
   return rows.reverse();
+}
+/* Season rating board: placed riders only (rating.board = "<season>:<rating, 4 digits>"), best first. */
+export async function topRated(season){
+  const snap = await get(query(ref(db, 'users'), orderByChild('rating/board'), startAt(`${season}:`), endAt(`${season}:~`), limitToLast(20)));
+  const rows = [];
+  snap.forEach(c => { const v = c.val(); if (v && v.rating && v.rating.season === season) rows.push({uid:c.key, ...v}); });
+  return rows.sort((a, b) => b.rating.r - a.rating.r);
 }
