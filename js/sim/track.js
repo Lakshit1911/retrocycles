@@ -104,7 +104,7 @@ function build(def, cfg){
   const LX = new Float64Array(M), LZ = new Float64Array(M), LK = new Float64Array(M), VMAX = new Float64Array(M);
   for (let i = 0; i < M; i++) { LX[i] = X[i] + NX[i] * LINE[i]; LZ[i] = Z[i] + NZ[i] * LINE[i]; }
   curvature(LX, LZ, M, step, LK, 4);
-  const C = cfg || {base:15, yawLo:3.6, yawHi:2.2, vLo:12, vHi:26};
+  const C = cfg || {base:15, yawLo:4.4, yawHi:2.9, vLo:12, vHi:26};
   const yaw = v => { const k = Math.max(0, Math.min(1, (v - C.vLo) / (C.vHi - C.vLo))); return C.yawLo + (C.yawHi - C.yawLo) * k; };
   for (let i = 0; i < M; i++) {
     // the tightest of the next few samples counts (the rider needs the whole corner)

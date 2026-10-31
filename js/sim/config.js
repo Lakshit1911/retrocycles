@@ -8,8 +8,8 @@ export const SIM_CONFIG = {
   ptAngle:2 * Math.PI / 180, ptDist:.75,   // new wall point when heading turns 2 degrees or after .75 units
   bucket:4,              // spatial hash bucket size (units)
   // Steering: yaw rate (rad/s) eases from yawLo at speed vLo down to yawHi at speed vHi
-  yawLo:3.6, yawHi:2.2, vLo:12, vHi:26,
-  steerResp:9,           // how fast the steering input ramps in (1/s): progressive arcs rather than on/off
+  yawLo:4.4, yawHi:2.9, vLo:12, vHi:26,   // cruise turns on a ~3.7-cell radius, boost on ~8.5
+  steerResp:12,          // how fast the steering input ramps in (1/s): progressive arcs rather than on/off
   steerRelease:16,       // and how fast it lets go or reverses: lines straighten crisply
   grip:20, gripFall:1.5, // sideways slide bleeds off at grip/s, divided by mul^gripFall: boost drifts a little
   snapGap:.9,            // snap turns: at most one per .9 units travelled (grid: one per cell)
