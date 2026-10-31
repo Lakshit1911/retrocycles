@@ -79,6 +79,11 @@ button:focus-visible,input:focus-visible{outline:1px solid var(--accent);outline
 #camBtn{display:none}
 body.coarse #camBtn{display:inline-block}
 
+/* Side awareness: an arrow at the screen edge for each nearby rider who is beside or behind you */
+.threats{position:fixed;inset:0;pointer-events:none;z-index:2}
+.threat{--c:#fff;position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;background:var(--c);
+  clip-path:polygon(100% 50%,0 0,28% 50%,0 100%);filter:drop-shadow(0 0 6px var(--c));transition:opacity .12s}
+
 /* ---------- Touch controls: translucent dark discs with a thin coloured ring ---------- */
 .touch{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:flex-end;z-index:3;pointer-events:none;
   padding-left:var(--gx);padding-right:var(--gr);padding-block:0 calc(env(safe-area-inset-bottom,0px) + 14px)}

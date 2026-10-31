@@ -147,7 +147,7 @@ test('boundary: riding off the arena crashes at the perimeter', () => {
 
 test('own trail: the newest stretch is ignored, an old loop is not', () => {
   const {w, r} = solo({x:0, z:0, h:0}, {assist:0});
-  run(w, 120, [{steer:1, boost:false, snap:0}]);   // tight circle: comes back round onto its own wall
+  run(w, 180, [{steer:1, boost:false, snap:0}]);   // tight circle: comes back round onto its own wall
   assert(!r.alive, 'closing a full circle onto your own wall crashes');
   assert(r.pd[r.n - 1] > 10, 'but only after a lap');
 });

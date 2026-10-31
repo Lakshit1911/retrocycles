@@ -717,7 +717,33 @@ function drawRadar(){
     if (b === player) { rctx.strokeStyle = '#ffffff'; rctx.lineWidth = 2; rctx.stroke(); }
   });
 }
+/* Side awareness: riders near you but off-screen (beside or behind) get an arrow at the screen edge,
+   pointing toward them, in their colour, fading with distance */
+const threatEls = [], threatV = new THREE.Vector3();
+function updateThreats(){
+  const box = $('threats'), H = VC.hud, show = playing() && player && player.alive && state !== 'wait';
+  let n = 0;
+  if (show) for (const b of bikes) {
+    if (b === player || !b.alive || n >= H.threatMax) continue;
+    const d = player.vpos.distanceTo(b.vpos);
+    if (d > H.threatRange) continue;
+    threatV.copy(b.vpos).setY(.5).project(camera);
+    const behind = threatV.z > 1;
+    let x = behind ? -threatV.x : threatV.x, y = behind ? -threatV.y : threatV.y;
+    if (!behind && Math.abs(x) < .92 && Math.abs(y) < .88) continue;   // already on screen
+    const a = Math.atan2(y, x);
+    let el = threatEls[n];
+    if (!el) { el = document.createElement('i'); el.className = 'threat'; box.appendChild(el); threatEls[n] = el; }
+    el.style.setProperty('--c', b.r.css);
+    el.style.left = (50 + Math.cos(a) * 46) + '%'; el.style.top = (50 - Math.sin(a) * 42) + '%';
+    el.style.transform = `rotate(${-a}rad)`;
+    el.style.opacity = (1 - d / H.threatRange) * .9 + .1;
+    n++;
+  }
+  for (let i = n; i < threatEls.length; i++) threatEls[i].style.opacity = 0;
+}
 function updateHud(dt){
+  updateThreats();
   if (state === 'demo' || !player) return;
   $('spd').textContent = Math.round(BASE * player.mul * 11 * (player.alive && state !== 'countdown' && state !== 'wait' ? 1 : 0));
   $('nrg').style.width = (player.energy * 100).toFixed(1) + '%';

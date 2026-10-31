@@ -4,15 +4,16 @@
 import { VISUAL_CONFIG as VC } from './config.js';
 const THREE = window.THREE;
 export const CAMS = ['Chase', 'Cockpit', 'Overview'];
+const wrap = a => ((a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
 
 export function createCameraRig(camera, reduceMotion){
   const pos = new THREE.Vector3(0, 60, 90), look = new THREE.Vector3(), tA = new THREE.Vector3(), tB = new THREE.Vector3();
-  let orbitT = 0, shake = 0, roll = 0;
+  let orbitT = 0, shake = 0, roll = 0, camYaw = 0;
 
   // Put the camera behind the craft right away (round start)
   function intro(b){
     const fx = -Math.sin(b.vyaw), fz = -Math.cos(b.vyaw), C = VC.camera.intro;
-    pos.set(b.vpos.x - fx * C.back, C.height, b.vpos.z - fz * C.back); look.copy(b.vpos);
+    pos.set(b.vpos.x - fx * C.back, C.height, b.vpos.z - fz * C.back); look.copy(b.vpos); camYaw = b.vyaw;
     camera.fov = VC.camera.fov.cruise; camera.updateProjectionMatrix();
   }
   function impact(amount){ if (!reduceMotion) shake = Math.max(shake, amount); else shake = Math.max(shake, amount * .25); }
@@ -33,9 +34,14 @@ export function createCameraRig(camera, reduceMotion){
     let m = mode, k;
     if (!b.alive) m = 2;
     if (m === 0) {
-      tA.set(P.x - fx * C.chase.back, C.chase.height, P.z - fz * C.chase.back);
-      tB.set(P.x + fx * C.chase.ahead, C.chase.lookHeight, P.z + fz * C.chase.ahead);
-      k = countdown ? 2.2 : C.chase.follow;
+      /* The camera's own heading trails the craft's a little, so mid-turn you still see the outside
+         of the corner, and it looks into the turn by an amount that grows with the turn rate */
+      const H = C.chase;
+      camYaw += wrap(b.vyaw - camYaw) * (1 - Math.exp(-dt * H.yawFollow));
+      const lead = Math.max(-H.leadMax, Math.min(H.leadMax, (b.yawRate || 0) * H.turnLead)), ly = b.vyaw + lead;
+      tA.set(P.x + Math.sin(camYaw) * H.back, H.height, P.z + Math.cos(camYaw) * H.back);
+      tB.set(P.x - Math.sin(ly) * H.ahead, H.lookHeight, P.z - Math.cos(ly) * H.ahead);
+      k = countdown ? 2.2 : H.follow;
     } else if (m === 1) {
       tA.set(P.x + fx * .35, C.cockpit.height, P.z + fz * .35);
       tB.set(P.x + fx * C.cockpit.ahead, .7, P.z + fz * C.cockpit.ahead); k = 30;

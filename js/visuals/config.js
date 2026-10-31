@@ -72,19 +72,23 @@ export const VISUAL_CONFIG = {
   quality: {
     // pixelRatio cap, shadow map size (0 = off), bloom resolution scale (0 = no bloom pass),
     // MSAA samples on the bloom render target (WebGL2 only), particle count scale
-    high:  {pixelRatio:2,   shadows:2048, bloomScale:1,   msaa:4, particles:1},
+    high:  {pixelRatio:1.5, shadows:2048, bloomScale:1,   msaa:4, particles:1},
     medium:{pixelRatio:1.5, shadows:1024, bloomScale:0.6, msaa:2, particles:0.6},
     low:   {pixelRatio:1,   shadows:0,    bloomScale:0,   msaa:0, particles:0.35}
   },
   autoQuality: {minFps:45, seconds:3, graceSeconds:4},
+  // Edge-of-screen arrows for riders beside or behind you (off-screen) within this many cells
+  hud: {threatRange:16, threatMax:5},
   camera: {
     // chase: cells behind / above the craft, how far ahead it looks, follow stiffness, roll with bank
-    chase:{back:4.4, height:1.45, ahead:6.5, lookHeight:0.6, follow:6, bankTilt:0.28},
+    // yawFollow: how fast the camera's heading catches the craft's (lower = more of the turn's outside in view)
+    // turnLead: radians the view swings into a turn per rad/s of yaw rate, capped at leadMax
+    chase:{back:4.9, height:1.95, ahead:9, lookHeight:0.45, follow:7, bankTilt:0.22, yawFollow:12, turnLead:0.1, leadMax:0.3},
     cockpit:{height:1.0, ahead:25},
     overview:{height:46, back:22},
     orbit:{radius:66, height:30, speed:0.06},   // attract-mode flyover behind the menus
     intro:{back:30, height:34},                 // where the camera swoops in from at round start
-    fov:{cruise:42, boost:58, menu:55, overview:55},
+    fov:{cruise:62, boost:76, menu:55, overview:55},
     shake:{boost:0.05, crash:0.9, decay:2.2}
   },
   // The turntable Phantom on the title and garage screens (camera space)
