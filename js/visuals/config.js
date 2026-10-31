@@ -24,11 +24,14 @@ export const VISUAL_CONFIG = {
     bankRise:0.09,       // seconds to reach the peak
     bankSettle:0.2       // seconds (time constant) to settle back
   },
+  // Free steering feel: snap turns larger than snapAngle (rad) ease like grid turns; otherwise the
+  // craft banks with its yaw rate (bankPerYaw radians of lean per rad/s, capped at bankMax)
+  free: {snapAngle:0.6, bankPerYaw:0.13, bankMax:0.5, bankResp:8},
   wall: {
     height:0.5           // 0.9 m at vehicle scale
   },
   trail: {
-    maxPoints:1024,      // fixed buffer size per rider (turn points per round)
+    maxPoints:2048,      // fixed buffer size per rider (turn points per round; free mode thins older points)
     bodyBottom:0.08, bodyTop:0.3,        // dim translucent body, brighter toward the top
     band:0.14, bandIntensity:2.4,        // bright top band (fraction of height) and its strength
     whiteCore:0.6,                       // white in the band's core

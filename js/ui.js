@@ -37,7 +37,7 @@ const backFromGoogle = (() => {
 })();
 let pendingJoin = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 
-let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson'};
+let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson', steer:'free'};
 try { const s = JSON.parse(localStorage.getItem('rc3d-settings') || 'null'); if (s) settings = Object.assign(settings, s); } catch (e) {}
 const save = () => { try { localStorage.setItem('rc3d-settings', JSON.stringify(settings)); } catch (e) {} };
 const myName = () => (profile && profile.name) || (user && user.displayName) || 'YOU';
@@ -240,13 +240,20 @@ function renderSettings(){
     $('botsHint').textContent = 'Bots sharing the arena';
   }
   $('botsVal').textContent = bots;
+  // Steering: guests see the host's pick (a room without one predates free steering: grid)
+  const steer = view ? (c.steer === 'free' ? 'free' : 'grid') : settings.steer === 'grid' ? 'grid' : 'free', free = steer === 'free';
+  qa('#steerSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.s === steer)));
+  $('steerHint').textContent = free ? 'Hold to carve, Shift or swipe to snap 90°' : 'Classic: every press turns 90°';
+  $('kTurn').textContent = free ? 'Steer (hold)' : 'Turn 90°';
+  $('kSnap').hidden = !free;
+  $('kPhone').textContent = free ? 'hold ◀ ▶ to steer · swipe to snap' : 'buttons or swipe';
   qa('#diffSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.d === diff)));
   qa('#winSeg button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.w === win)));
   qa('#qualitySeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === Game.quality)));
   $('diffHint').textContent = DIFF[diff].hint;
   $('settingsBlock').classList.toggle('locked', !!view);
 }
-const cfgOut = () => ({bots:settings.obots, diff:settings.diff, win:settings.win});
+const cfgOut = () => ({bots:settings.obots, diff:settings.diff, win:settings.win, steer:settings.steer});
 function changed(){
   save(); renderSettings();
   if (screen === 'lobby' && room && room.isHost) { room.setCfg(cfgOut()); renderLobby(); }
@@ -260,6 +267,7 @@ $('botsMinus').addEventListener('click', () => stepBots(-1));
 $('botsPlus').addEventListener('click', () => stepBots(1));
 qa('#diffSeg button').forEach(b => b.addEventListener('click', () => { settings.diff = b.dataset.d; changed(); }));
 qa('#winSeg button').forEach(b => b.addEventListener('click', () => { settings.win = +b.dataset.w; changed(); }));
+qa('#steerSeg button').forEach(b => b.addEventListener('click', () => { settings.steer = b.dataset.s; changed(); }));
 // Graphics quality is per device, so it never goes into the room settings
 qa('#qualitySeg button').forEach(b => b.addEventListener('click', () => { Game.setQuality(b.dataset.q); renderSettings(); }));
 // Master volume (per device), alongside the SOUND mute button
@@ -284,7 +292,7 @@ Game.hooks.quality = (q, auto) => {
 /* ---------- Solo ---------- */
 $('ride').addEventListener('click', () => {
   save(); keepAwake(true); ratedRoster = null;
-  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, name:myName(), color:myColor()});
+  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, steer:settings.steer, name:myName(), color:myColor()});
 });
 
 /* ---------- Match end / quit ---------- */
@@ -415,9 +423,9 @@ function tryBegin(){
   const roster = st.roster || [], me = roster.findIndex(p => p.uid === user.uid);
   if (me < 0) { toast('A match started without you. You are in for the next one.'); return; }
   inMatch = true; keepAwake(true); primeRatings(roster);
-  Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, id:st.id,
-    net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b)}});
-  room.listenMatch(Game.applySnapshot, Game.addTurnPoint);
+  Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, steer:st.steer, id:st.id,
+    net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b), input:(r, q, s) => room.sendInputs(r, q, s)}});
+  room.listenMatch(Game.applySnapshot, Game.addTurnPoint, Game.addFreePoints);
 }
 async function hostStart(){
   const players = sortedPlayers(), bots = Math.min(settings.obots, MAX - players.length);
@@ -427,14 +435,14 @@ async function hostStart(){
     ...players.map((p, i) => ({name:p.name, uid:p.uid, bot:false, color:col.players[i]})),
     ...Array.from({length:bots}, (_, j) => ({name:RIDERS[players.length + j].name, uid:'', bot:true, color:col.bots[j]}))
   ];
-  const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win};
+  const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win, steer:settings.steer};
   await busy($('startMatch'), async () => {
     try { await room.begin(start); }
     catch (e) { toast('Could not start: ' + e.message); return; }
     lastStart = start.id; inMatch = true; matchRoster = roster; gone = new Set(); keepAwake(true); primeRatings(roster);
-    room.listenInputs(roster, Game.remoteTurn, Game.remoteBoost);
-    Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, id:start.id,
-      net:{state:s => room.sendState(s), turn:(r, i, n, x, z) => room.logTurn(r, i, n, x, z)}});
+    room.listenInputs(roster, Game.remoteTurn, Game.remoteBoost, Game.remoteInput);
+    Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, steer:settings.steer, id:start.id,
+      net:{state:s => room.sendState(s), turn:(r, i, n, x, z) => room.logTurn(r, i, n, x, z), points:(r, q, p) => room.logPoints(r, q, p)}});
   });
 }
 $('startMatch').addEventListener('click', hostStart);

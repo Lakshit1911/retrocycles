@@ -51,6 +51,7 @@ export function disposeRiderVisual(v){
 // Snap the pose to the current heading (round start, respawn)
 export function resetPose(b, yaw){
   b.vyaw = b.yawFrom = b.yawTo = yaw; b.turnT = 1; b.bankT = 9; b.bankSign = 0;
+  b.vhead = yaw; b.yawOff = 0; b.yawRate = 0;   // free steering (updatePoseFree)
   b.mesh.ud.setLean(0);
 }
 
@@ -68,6 +69,31 @@ export function updatePose(b, dt, anchor, heading, speed){
   b.bankT += dt;
   const bank = b.bankT < T.bankRise ? Math.sin(b.bankT / T.bankRise * Math.PI / 2) : Math.exp(-(b.bankT - T.bankRise) / T.bankSettle);
   b.lean = b.bankSign * T.bankPeak * bank;
+  const g = b.mesh.group;
+  g.position.copy(anchor);
+  g.rotation.y = b.vyaw;
+  b.mesh.ud.setLean(b.lean);
+  b.mesh.ud.update(dt, speed);
+}
+
+/* Free steering: the heading is already continuous, so the craft follows it directly and banks
+   with its yaw rate. A snap turn (a jump of more than VC.free.snapAngle) is eased and banked like a
+   grid turn. heading: simulated yaw (headingYaw convention). */
+export function updatePoseFree(b, dt, anchor, heading, speed){
+  const T = VC.turn, F = VC.free;
+  let d = wrap(heading - b.vhead);
+  if (Math.abs(d) > F.snapAngle) {
+    b.yawOff = wrap(b.vyaw - heading); b.turnT = 0;
+    b.bankT = 0; b.bankSign = Math.sign(d); d = 0;
+  }
+  b.vhead = heading;
+  if (dt > 0) b.yawRate += (d / dt - b.yawRate) * Math.min(1, dt * F.bankResp);
+  b.turnT = Math.min(1, b.turnT + dt / T.yawTime);
+  b.vyaw = heading + b.yawOff * (1 - easeInOut(b.turnT));
+  b.bankT += dt;
+  const bank = b.bankT < T.bankRise ? Math.sin(b.bankT / T.bankRise * Math.PI / 2) : Math.exp(-(b.bankT - T.bankRise) / T.bankSettle);
+  const carve = Math.max(-F.bankMax, Math.min(F.bankMax, b.yawRate * F.bankPerYaw));
+  b.lean = Math.max(-F.bankMax, Math.min(F.bankMax, carve + b.bankSign * T.bankPeak * bank));
   const g = b.mesh.group;
   g.position.copy(anchor);
   g.rotation.y = b.vyaw;

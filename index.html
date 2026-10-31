@@ -145,12 +145,13 @@
       <div data-slot="settings"></div>
       <button class="ride cut" id="ride">RIDE</button>
       <div class="keys">
-        <div><span>Turn 90°</span><span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></span></div>
+        <div><span id="kTurn">Steer (hold)</span><span><kbd>←</kbd> <kbd>→</kbd> / <kbd>A</kbd> <kbd>D</kbd></span></div>
+        <div id="kSnap"><span>Snap 90°</span><span><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></span></div>
         <div><span>Boost</span><span><kbd>Space</kbd> / <kbd>W</kbd></span></div>
         <div><span>Camera</span><kbd>C</kbd></div>
         <div><span>Menu / Sound</span><span><kbd>P</kbd> <kbd>M</kbd></span></div>
         <div><span>Charge boost</span><span>ride beside a wall</span></div>
-        <div><span>Phone</span><span>buttons or swipe</span></div>
+        <div><span>Phone</span><span id="kPhone">hold ◀ ▶ to steer · swipe to snap</span></div>
       </div>
     </section>
 
@@ -272,6 +273,10 @@
 
     <!-- Shared settings block, moved between Solo and Lobby -->
     <div class="settings" id="settingsBlock">
+      <div class="row">
+        <div><div class="label">Steering</div><div class="hint" id="steerHint">Hold to carve, Shift or swipe to snap 90°</div></div>
+        <div class="seg cut" id="steerSeg"><button data-s="free">Free</button><button data-s="grid">Grid</button></div>
+      </div>
       <div class="row">
         <div><div class="label">AI rivals</div><div class="hint" id="botsHint">Bots sharing the arena</div></div>
         <div class="stepper cut"><button id="botsMinus" aria-label="Fewer rivals">−</button><output id="botsVal">3</output><button id="botsPlus" aria-label="More rivals">+</button></div>

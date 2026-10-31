@@ -1,7 +1,7 @@
 /* Light walls: one shader ribbon per rider plus a soft glow strip on the floor beneath it.
    The ribbon follows the rider's path (any polyline, not just 90 degree corners), starts at the
    craft's tail and is rebuilt into fixed-size buffers each frame: no per-frame allocation.
-   Purely visual: the occupied cells in game.js stay the source of truth for collisions. */
+   Purely visual: the occupied cells in game.js (grid) or js/sim/free.js stay the source of truth for collisions. */
 import { VISUAL_CONFIG as VC } from './config.js';
 import { lin } from './renderer.js';
 const THREE = window.THREE;
@@ -100,6 +100,38 @@ export function createTrails(scene){
     b.trail = {wall, glow};
   }
 
+  /* Free steering walls arrive as b.wpts (flat x,z world points, b.wn of them in use), plus an
+     optional uncached tail b.wtail (b.wtn points: a guest's predicted wall) and the head b.pos.
+     Points are folded into a per-rider cache as they arrive: straight runs collapse to their ends,
+     and when the cache fills its older half is thinned, so long rounds fit the fixed buffers. */
+  const TAIL = 64;
+  function keep(t, x, z){
+    let k = t.fn;
+    if (k >= 2) {
+      const ux = t.fx[k - 1] - t.fx[k - 2], uz = t.fz[k - 1] - t.fz[k - 2], vx = x - t.fx[k - 1], vz = z - t.fz[k - 1];
+      const uu = ux * ux + uz * uz, vv = vx * vx + vz * vz, cr = ux * vz - uz * vx;
+      if (ux * vx + uz * vz > 0 && cr * cr < 2.5e-5 * uu * vv && uu < 256) { t.fx[k - 1] = x; t.fz[k - 1] = z; return; }
+    }
+    if (k >= MAX - 2 - TAIL) {
+      let j = 0;
+      for (let i = 0; i < k; i++) if (i >= k / 2 || i % 2 === 0) { t.fx[j] = t.fx[i]; t.fz[j] = t.fz[i]; j++; }
+      k = j;
+    }
+    t.fx[k] = x; t.fz[k] = z; t.fn = k + 1;
+  }
+  function freeLine(t, b){
+    const P = b.wpts, n = b.wn;
+    if (!t.fx) { t.fx = new Float32Array(MAX); t.fz = new Float32Array(MAX); t.fn = 0; t.fsrc = 0; }
+    if (t.fref !== P || n < t.fsrc) { t.fref = P; t.fsrc = 0; t.fn = 0; }
+    for (; t.fsrc < n; t.fsrc++) keep(t, P[2 * t.fsrc], P[2 * t.fsrc + 1]);
+    let m = t.fn;
+    PX.set(t.fx.subarray(0, m)); PZ.set(t.fz.subarray(0, m));
+    const T = b.wtail;
+    if (T) for (let i = 0; i < b.wtn && m < MAX - 1; i++) { PX[m] = T[2 * i]; PZ[m] = T[2 * i + 1]; m++; }
+    if (b.alive) { PX[m] = b.pos.x; PZ[m] = b.pos.z; m++; }   // a dead rider's wall already ends at the crash
+    return m;
+  }
+
   function remove(b){
     if (!b.trail) return;
     const {wall, glow} = b.trail;
@@ -108,15 +140,20 @@ export function createTrails(scene){
     b.trail = null;
   }
 
-  /* Rebuild one rider's ribbon. wx: cell -> world. trim: cells hidden behind the head (the craft
+  /* Rebuild one rider's ribbon (grid: b.segs, free steering: b.wpts). wx: cell -> world. trim: cells hidden behind the head (the craft
      covers them). deathWindow: seconds a dead rider's wall stays before its cells clear. */
   function update(b, wx, trim, deathWindow){
     const t = b.trail; if (!t) return;
-    if (b.cleared || b.segs.length === 0) { t.wall.visible = t.glow.visible = false; return; }
-    // Polyline: every segment start, then the head
     let n = 0;
-    for (let i = 0; i < b.segs.length && n < MAX - 1; i++) { PX[n] = wx(b.segs[i].x0); PZ[n] = wx(b.segs[i].z0); n++; }
-    PX[n] = b.pos.x; PZ[n] = b.pos.z; n++;
+    if (b.wpts) {
+      // Free steering: dense world-space polyline (see freeLine)
+      if (b.cleared || !(n = freeLine(t, b))) { t.wall.visible = t.glow.visible = false; return; }
+    } else {
+      if (b.cleared || b.segs.length === 0) { t.wall.visible = t.glow.visible = false; return; }
+      // Polyline: every segment start, then the head
+      for (let i = 0; i < b.segs.length && n < MAX - 1; i++) { PX[n] = wx(b.segs[i].x0); PZ[n] = wx(b.segs[i].z0); n++; }
+      PX[n] = b.pos.x; PZ[n] = b.pos.z; n++;
+    }
     // Trim from the head end
     let remain = trim;
     while (n >= 2 && remain > 0) {
