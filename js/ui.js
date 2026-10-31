@@ -9,6 +9,9 @@ import { riderColours, cssOf, numOf, ACCENTS, accentFromHue, hueOf } from './pro
 import { PLACEMENT, DEFAULT as RATING0 } from './progression/rating.js';
 import { seasonId, seasonLabel } from './progression/season.js';
 import { styleVector, band } from './progression/signature.js';
+import './input/controls.js';   // Controls screen: key remapping + controller layout
+import './mobile.js';           // iPhone app bridge (haptics, keep-awake) and iOS touch polish
+import './pwa.js';              // service worker for the installable web app (production only)
 
 const $ = id => document.getElementById(id);
 const qa = (s, el = document) => [...el.querySelectorAll(s)];
