@@ -59,6 +59,19 @@ export const VISUAL_CONFIG = {
     dust:{count:420, box:28, height:7, size:0.09, opacity:0.35, color:'#8ea3c9', drift:0.35},
     pulses:{count:4, length:7, width:0.12, speed:9, opacity:0.55, color:'#5b7fb8', gap:9}
   },
+  // Circuit mode (js/visuals/track.js): road, barriers, gates, start gantry, pickups
+  track: {
+    road:{color:'#0a0c12', metalness:0.55, roughness:0.36, env:0.16, y:0.006},
+    lane:{color:'#3a4356', opacity:0.5, width:0.1, dash:2.4, period:6},     // faint dashed centre line
+    edge:{color:'#9fb7ff', intensity:0.5, width:0.1, inset:0.5},             // subtle glow lines just inside the barriers
+    barrier:{height:0.9, thickness:0.35, color:'#0b0d12', edge:'#c9d3e6', edgeIntensity:1.4, edgeWidth:0.07},
+    gate:{color:'#9fb7ff', intensity:0.45, height:4.6, tube:0.04, flash:1.6, flashTime:0.6},
+    gantry:{height:6.4, color:'#0b0d12', strip:'#e8eef8', stripIntensity:1.6, checker:0.32},
+    pickups:{hover:0.95, bob:0.12, spin:1.6, size:0.5, halo:2.4, glow:0.55,
+      colors:{boost:'#ffb547', shield:'#7fd6ff', recharge:'#f2f5ff', phase:'#c38bff'}},
+    shell:{scale:[0.95, 0.6, 1.7], opacity:0.55},   // shield / phase shell around the craft
+    ghostBlink:14                                    // Hz: a respawned rider blinks while ghosting
+  },
   // Exponential fog in world units (1 unit = 1 cell = ~1.8 m at vehicle scale), so the far
   // half of the 128-cell arena melts into darkness while the near field stays crisp
   fog: {density:0.011},
