@@ -632,6 +632,7 @@ function freeGuestRound(st){
 function freeSnapshot(st, now){
   // Host tick -> local clock: the smallest offset seen (least delayed snapshot), drifting slowly
   if (st.t > 0) { const off = now - st.t * 1000 / 60; fclk = fclk === null || off < fclk ? off : fclk + (off - fclk) * .02; }
+  st.at = now;
   fsnaps.push(st); if (fsnaps.length > 16) fsnaps.shift();
   const c = isCircuit();
   if (c) {
@@ -680,7 +681,7 @@ function reconcile(b, a){
 function freeGuestFrame(dt){
   if (!fw || !player) return;
   const r = player.fr;
-  if (isCircuit() && fclk !== null) fw.tick = Math.max(fw.tick, Math.floor(nowTick()));   // burst walls expire on the host's clock
+  if (isCircuit()) fw.tick = Math.max(fw.tick, Math.floor(nowTick()));   // burst walls expire on the host's clock
   if (r && player.alive && (state === 'run' || state === 'over')) {
     fw.acc = Math.min(fw.acc + dt, FDT * 8);
     while (fw.acc >= FDT) {
@@ -730,7 +731,12 @@ let graceT = null, raceRes = null, hud = null, noteT = 0, radarBg = null;
 const newWlist = () => ({x:new Float32Array(WL), z:new Float32Array(WL), a:new Float32Array(WL), n:0, live:false});
 const fmtT = ticks => { const t = Math.max(0, ticks) / 60, m = Math.floor(t / 60), sec = t - m * 60; return `${m}:${sec.toFixed(3).padStart(6, '0')}`; };
 // Host tick now: solo / host read the world; guests estimate it from the snapshot clock
-const nowTick = () => mode === 'guest' ? (fclk === null ? fw.tick : (performance.now() - fclk) * 60 / 1000) : fw.tick + fw.acc / FDT;
+// (the newest snapshot's tick plus a little extrapolation, so a slow host never runs the clock ahead)
+const nowTick = () => {
+  if (mode !== 'guest') return fw.tick + fw.acc / FDT;
+  const st = fsnaps[fsnaps.length - 1];
+  return st ? st.t + Math.min(12, (performance.now() - st.at) * 60 / 1000) : fw.tick;
+};
 function chime(f0, f1, vol = .05){ if (SFX.ctx) SFX.tone('sine', f0, f1, .16, vol, SFX.ctx.currentTime, SFX.fxG); }
 const hexOf = css => parseInt(css.slice(1), 16);
 

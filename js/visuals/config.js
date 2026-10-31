@@ -69,7 +69,7 @@ export const VISUAL_CONFIG = {
     gantry:{height:6.4, color:'#0b0d12', strip:'#e8eef8', stripIntensity:1.6, checker:0.32},
     pickups:{hover:0.95, bob:0.12, spin:1.6, size:0.5, halo:2.4, glow:0.55,
       colors:{boost:'#ffb547', shield:'#7fd6ff', recharge:'#f2f5ff', phase:'#c38bff'}},
-    shell:{scale:[0.95, 0.6, 1.7], opacity:0.55},   // shield / phase shell around the craft
+    shell:{scale:[0.7, 0.42, 1.35], opacity:0.4},   // shield / phase shell around the craft
     ghostBlink:14                                    // Hz: a respawned rider blinks while ghosting
   },
   // Exponential fog in world units (1 unit = 1 cell = ~1.8 m at vehicle scale), so the far
