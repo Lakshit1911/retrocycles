@@ -20,6 +20,8 @@ import { createEffects } from './visuals/effects.js';
 import { createCameraRig, CAMS } from './visuals/camera.js';
 import * as FS from './sim/free.js';
 import { encodeIn, inputQueue, queuePush, queueTake } from './sim/link.js';
+import { actionOf, releasedBy } from './input/bindings.js';   // remappable keys (Controls screen)
+import { pollGamepad } from './input/gamepad.js';            // game controllers, polled in frame()
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const N = 128, H = N / 2, BASE = 15, DEATH_WINDOW = 1.4;
@@ -874,25 +876,31 @@ function trySkip(){ if (mode !== 'guest' && state === 'run' && !humansAlive()) e
 
 /* ---------- Input ---------- */
 function playing(){ return ['countdown', 'run', 'over', 'wait'].includes(state); }
+// Keys come from js/input/bindings.js (defaults: arrows / A D steer, Shift + arrow snaps, Space / W / Up
+// boost, E burst, C camera, P / Esc menu, M sound). Free steering: hold to steer. Grid: every press turns
 addEventListener('keydown', e => {
   if (e.target instanceof HTMLInputElement) return;
-  const k = e.code;
-  if (playing() && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(k)) e.preventDefault();
-  if (k === 'KeyM' && !e.repeat) { SFX.toggle(); return; }
-  if (!playing()) return;
-  if (e.repeat && k !== 'Space' && k !== 'KeyW' && k !== 'ArrowUp') return;
-  // Free steering: hold to steer, Shift + arrow snaps 90 degrees. Grid: every press turns
-  if (k === 'ArrowLeft' || k === 'KeyA') { if (isFree() && !e.shiftKey) keys.l = true; else queueTurn(-1); }
-  else if (k === 'ArrowRight' || k === 'KeyD') { if (isFree() && !e.shiftKey) keys.r = true; else queueTurn(1); }
-  else if (k === 'Space' || k === 'KeyW' || k === 'ArrowUp') { keys.boost = true; if (!e.repeat) trySkip(); }
-  else if (k === 'KeyC') cycleCam();
-  else if (k === 'KeyP' || k === 'Escape') togglePause();
+  const k = e.code, a = actionOf(e);
+  if (playing() && (a || ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(k))) e.preventDefault();
+  if (a === 'mute' && !e.repeat) { SFX.toggle(); return; }
+  if (!playing() || !a) return;
+  if (e.repeat && a !== 'boost') return;
+  if (a === 'left' || a === 'right') { if (isFree()) keys[a === 'left' ? 'l' : 'r'] = true; else queueTurn(a === 'left' ? -1 : 1); }
+  else if (a === 'snapLeft' || a === 'snapRight') queueTurn(a === 'snapLeft' ? -1 : 1);
+  else if (a === 'boost') { keys.boost = true; if (!e.repeat) trySkip(); }
+  else if (a === 'burst') keys.burst = true;
+  else if (a === 'camera') cycleCam();
+  else if (a === 'pause') togglePause();
 });
 addEventListener('keyup', e => {
-  if (['Space','KeyW','ArrowUp'].includes(e.code)) keys.boost = false;
-  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.l = false;
-  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.r = false;
+  const off = releasedBy(e.code);
+  if (off.has('boost')) keys.boost = false;
+  if (off.has('left')) keys.l = false;
+  if (off.has('right')) keys.r = false;
+  if (off.has('burst')) keys.burst = false;
 });
+// Game controllers (js/input/gamepad.js) drive the same keys, polled once per frame
+const padGame = {playing, free:isFree, paused:() => !$('pausebox').hidden, turn:queueTurn, pause:() => togglePause(), camera:cycleCam, skip:trySkip};
 addEventListener('blur', () => { keys.boost = keys.l = keys.r = false; if (state === 'run' && mode === 'solo') togglePause(true); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'run' && mode === 'solo') togglePause(true); });
 $('resumeBtn').addEventListener('click', () => togglePause(false));
@@ -952,6 +960,7 @@ let last = performance.now();
 const glowSlots = RIDERS.map(() => ({pos:null, colorHex:0, on:false}));
 function frame(now){
   requestAnimationFrame(frame);
+  pollGamepad(keys, padGame);
   const raw = (now - last) / 1000, real = Math.min(.05, raw); last = now;
   const dt = paused ? 0 : real;
   // Visual clock: slows briefly after your own crash; the simulation always uses dt

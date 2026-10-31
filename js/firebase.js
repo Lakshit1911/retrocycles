@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
   getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signInWithPopup, signInWithRedirect, getRedirectResult, GoogleAuthProvider, updateProfile,
-  signOut, sendPasswordResetEmail
+  signOut, sendPasswordResetEmail, initializeAuth, indexedDBLocalPersistence
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
   getDatabase, ref, child, get, set, update, remove, push, onValue, onChildAdded,
@@ -14,7 +14,10 @@ import { applyMatch } from './progression/record.js';
 import { cssOf } from './progression/colour.js';
 
 const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+// iOS app (Capacitor, capacitor://localhost): getAuth() waits forever on the popup / redirect helper
+// iframe there, so the app uses plain IndexedDB persistence and email + password only (js/mobile.js)
+const NATIVE_APP = !!(globalThis.Capacitor && typeof globalThis.Capacitor.isNativePlatform === 'function' && globalThis.Capacitor.isNativePlatform());
+export const auth = NATIVE_APP ? initializeAuth(app, {persistence:indexedDBLocalPersistence}) : getAuth(app);
 export const db = getDatabase(app);
 export { ref, child, get, set, update, remove, push, onValue, onChildAdded, onDisconnect, serverTimestamp };
 
@@ -33,7 +36,8 @@ const ERRORS = {
   'auth/popup-closed-by-user': 'Google sign-in was closed before it finished.',
   'auth/cancelled-popup-request': 'Google sign-in was closed before it finished.',
   'auth/unauthorized-domain': 'This site is not on the Firebase authorized domains list yet.',
-  'auth/operation-not-allowed': 'That sign-in method is not switched on in Firebase yet.'
+  'auth/operation-not-allowed': 'That sign-in method is not switched on in Firebase yet.',
+  'app/google-unavailable': 'Google sign-in does not work inside the iPhone app. Use email and password.'
 };
 export const authError = e => ERRORS[e && e.code] || (e && e.message) || 'Something went wrong.';
 
@@ -52,6 +56,7 @@ export async function signUp(name, email, pw){
 // Set just before a full-page Google redirect, so the app knows to finish sign-in when it reloads
 export const REDIRECT_FLAG = 'pr-google-redirect';
 export async function signInGoogle(){
+  if (NATIVE_APP) throw Object.assign(new Error(ERRORS['app/google-unavailable']), {code:'app/google-unavailable'});
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({prompt:'select_account'});
   try { return await signInWithPopup(auth, provider); }
@@ -63,7 +68,7 @@ export async function signInGoogle(){
     throw e;
   }
 }
-export const redirectResult = () => getRedirectResult(auth);
+export const redirectResult = () => (NATIVE_APP ? Promise.resolve(null) : getRedirectResult(auth));
 
 /* users/{uid}: public rider card. Only the name and stats live here, never the email. */
 export async function ensureProfile(user, name){

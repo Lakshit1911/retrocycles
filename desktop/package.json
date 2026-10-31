@@ -19,7 +19,9 @@
     "pack": "npm run build-app && electron-builder --dir",
     "dist:win": "npm run build-app && electron-builder --win --x64",
     "dist:mac": "npm run build-app && electron-builder --mac --universal",
-    "dist:linux": "npm run build-app && electron-builder --linux --x64"
+    "dist:linux": "npm run build-app && electron-builder --linux --x64",
+    "icons": "node ../tools/icons.mjs",
+    "dist:mac:dir": "npm run build-app && electron-builder --mac dir --universal"
   },
   "phantomRun": {
     "preferredPort": 47823,
@@ -122,14 +124,23 @@
           ]
         },
         {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
           "target": "dir",
           "arch": [
             "universal"
           ]
         }
       ],
+      "artifactName": "${productName}-${version}-mac.${ext}",
       "category": "public.app-category.racing-games",
-      "icon": "build/icon.png",
+      "minimumSystemVersion": "12.0",
+      "darkModeSupport": true,
+      "icon": "build/icon.icns",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
@@ -148,7 +159,25 @@
       ]
     },
     "dmg": {
-      "artifactName": "${productName}-${version}-mac.${ext}"
+      "artifactName": "${productName}-${version}-mac.${ext}",
+      "title": "${productName} ${version}",
+      "contents": [
+        {
+          "x": 150,
+          "y": 190,
+          "type": "file"
+        },
+        {
+          "x": 390,
+          "y": 190,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     },
     "linux": {
       "target": [

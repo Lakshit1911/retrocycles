@@ -1,6 +1,6 @@
 # Phantom Run
 
-An anti-gravity night race in the browser: every rider leaves a wall of light behind it. Race AI rivals solo, or host an online grid and share a 5-character code with friends (up to 6 riders, empty seats filled with AI if you like). Works with keyboard or touch (buttons or swipe).
+An anti-gravity night race in the browser: every rider leaves a wall of light behind it. Race AI rivals solo, or host an online grid and share a 5-character code with friends (up to 6 riders, empty seats filled with AI if you like). Works with keyboard (remappable), touch (buttons or swipe) or a game controller, in the browser, as an installable web app (iPhone home screen, offline solo), as a Mac / Windows / Linux app (Electron, Steam-ready) and as an iPhone app (Capacitor).
 
 Static site: no build step. Three.js r128 and the Firebase JS SDK load from CDNs.
 
@@ -26,7 +26,17 @@ js/sim/config.js         free-mode feel (turn rate, grip, boost, lane assist)
 js/sim/link.js           per-tick input coding and the host's input queue
 js/progression/          Glicko-2 rating, seasons, signature colour, clash resolution (pure modules)
 js/platform.js           desktop bridge: game events -> Steam achievements / rich presence (no-op on the web)
-desktop/                 Electron app for Steam (see desktop/README.md)
+desktop/                 Electron app for Steam and the Mac (see desktop/README.md)
+mobile/                  iPhone app: Capacitor iOS shell around the same bundle (see mobile/README.md)
+tools/web-bundle.mjs     shared bundler for the apps (vendors three.js + fonts, used by desktop/ and mobile/)
+tools/icons.mjs          icons from desktop/build/icon.png: icons/ (web app), desktop/build/icon.icns, iOS icon
+js/input/bindings.js     remappable keyboard bindings (localStorage pr-keys)
+js/input/gamepad.js      game controllers (Gamepad API): race controls, menu navigation, rumble
+js/input/controls.js     the Controls screen (remap keys, controller layout) and key hints
+js/mobile.js             iPhone app bridge (haptics, keep-awake, sign-in note) + iOS touch polish
+js/pwa.js · sw.js        installable web app: service worker registration + offline cache
+manifest.webmanifest     web app manifest (icons in icons/)
+tests/browser/apple.mjs  Playwright: PWA offline, controllers, key remapping, layouts
 tests/                   node tests/<name>.test.mjs (sim, rating, colour, signature), profile, signature reveal
 js/progression/          skill rating (Glicko-2), seasons, signature colour, colour clashes (pure, Node-tested)
 js/net.js                Realtime Database rooms (host / join / inputs / snapshots)
@@ -81,6 +91,40 @@ and drops a level automatically if the frame rate stays under 45 fps for 3 secon
 - Rooms delete themselves when the host disconnects (`onDisconnect`). The host should keep the tab in front while racing (browsers pause background tabs).
 - Each signed-in rider records their own stats after a match. Rules only let a rider write their own profile and only let counters rise by one match at a time.
 
+## Controls
+
+| | Keyboard (default, remappable) | Controller | Touch |
+|---|---|---|---|
+| Steer (Free: hold, Grid: 90° turn) | ← → / A D | left stick / d-pad | hold ◀ ▶ |
+| Snap 90° (Free) | Shift + ← → | LB / RB | swipe |
+| Boost | Space / W / ↑ | A or right trigger | BOOST |
+| Burst (Circuit) | E | X / Square | |
+| Camera | C | View / Select | CAM |
+| Menu / pause | P / Esc | Start / Options | II |
+| Sound | M | | ♪ |
+
+Keys are remapped in the race settings (**Controls**, in Solo and the Lobby): up to three keys per action,
+saved on the device (`localStorage` `pr-keys`). Game code reads them through `js/input/bindings.js`
+(`actionOf(event)`), never through hard-coded key codes. Controllers (Xbox, PlayStation, MFi, Switch Pro;
+anything with the standard Gamepad mapping) also drive the menus: d-pad / stick moves the focus, A selects,
+B goes back. A crash rumbles the pad. `js/input/gamepad.js` is polled once per frame from `game.js`
+(`pollGamepad(keys, padGame)`) and writes the same `keys` fields as the keyboard (`l`, `r`, `boost`,
+`burst`, `snapQ` through `queueTurn`).
+
+## Apps
+
+- **Installable web app (iPhone today, no App Store):** open the site in Safari > Share > Add to Home
+  Screen. `manifest.webmanifest` + `icons/` give it a full-screen app icon; `sw.js` caches the game so solo
+  races work offline (network first for the game's own files, so deploys show up at once; Firebase and the
+  `/__/auth` pages are never cached). The worker registers only on a real domain, or on localhost with
+  `?sw=1`. `vercel.json` serves `sw.js` with `Cache-Control: no-cache` and `Service-Worker-Allowed: /`.
+- **Mac app:** `cd desktop && npm ci && npm run build-app && npm run dist:mac` on a Mac gives a universal
+  dmg + zip. Step by step, Gatekeeper and signing: [desktop/README.md](desktop/README.md#build-the-mac-app-step-by-step).
+- **iPhone app:** `cd mobile && npm ci && npm run ios:add && npm run ios:open`, then Run in Xcode.
+  Details and the Google sign-in limitation: [mobile/README.md](mobile/README.md).
+
+Regenerate every icon after changing `desktop/build/icon.png`: `node tools/icons.mjs`.
+
 ## Local run
 
 Any static server works:
@@ -90,3 +134,7 @@ python3 -m http.server 8080
 ```
 
 Sign-in needs the page served from an authorized domain (`localhost` is authorized by default).
+
+Tests: `node tests/<name>.test.mjs` (sim, rating, colour, signature, apple), `cd desktop && npm test`,
+`cd mobile && npm test`, and the browser checks `node tests/browser/apple.mjs [pwa|gamepad|keys|shots] [--out dir]`
+(Playwright, software WebGL: a few minutes).

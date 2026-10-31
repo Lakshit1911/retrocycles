@@ -390,3 +390,59 @@ kbd{font-family:var(--mono);font-size:10.5px;color:var(--ink);border:1px solid v
   .reveal-beam i,.reveal-meta,.reveal-screen .ride{transition:none}
   .reveal-screen.named .reveal-name span{animation:none;opacity:1;filter:none;transform:none}
 }
+
+/* ======================================================================================
+   Apple apps track (additive): controls screen, controller focus, macOS title bar, iPhone touch
+   ====================================================================================== */
+/* Controller navigation (js/input/gamepad.js): a clear focus ring while a pad drives the menus */
+html.pad-nav :is(button,input,select,a):focus{outline:2px solid var(--accent);outline-offset:3px;box-shadow:0 0 0 6px var(--accent-soft)}
+
+/* Controls screen (js/input/controls.js), reuses the pause overlay */
+.controls-box{z-index:8;place-items:center;overflow:auto;padding-block:calc(env(safe-area-inset-top,0px) + 16px) calc(env(safe-area-inset-bottom,0px) + 16px)}
+.controls-card{width:min(560px,100%);text-align:left;gap:14px;max-height:100%;overflow:auto}
+.controls-card .big{font-size:18px}
+.ctl-list{display:grid}
+.ctl-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:7px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.ctl-name{font-size:12px;color:var(--ink);display:grid}
+.ctl-name small{font-size:10.5px;color:var(--dim);letter-spacing:.04em}
+.ctl-keys{display:flex;gap:6px}
+.ctl-key{min-width:58px;min-height:34px;padding:4px 8px;border:1px solid var(--line-strong);border-radius:3px;background:rgba(4,5,8,.6);color:var(--ink);
+  font:500 11px var(--mono);letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+.ctl-key.empty{color:var(--faint);border-style:dashed}
+.ctl-key:hover{border-color:var(--dim)}
+.ctl-key.listening{border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);animation:breathe 1.2s ease-in-out infinite}
+.ctl-pad{display:grid;gap:6px;padding-top:12px;border-top:1px solid var(--line)}
+.ctl-pad-map{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 18px;font-size:11px;color:var(--dim);margin-top:4px}
+.ctl-pad-map div{display:flex;justify-content:space-between;gap:8px}
+.ctl-pad-map span:last-child{color:var(--ink);text-align:right}
+.ctl-actions{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;margin-top:4px}
+.ctl-actions .ghost:disabled{opacity:.4;cursor:default}
+.controls-row .ghost{padding:10px 14px}
+@media (max-width:560px){
+  .ctl-key{min-width:50px}
+  .ctl-pad-map{grid-template-columns:minmax(0,1fr)}
+}
+
+/* iPhone app: why there is no Google button (js/mobile.js) */
+.app-note{margin:0;padding:10px 12px;border:1px dashed var(--line-strong);border-radius:var(--r)}
+
+/* macOS desktop app: hidden-inset title bar. desktop/preload.js adds html.mac-titlebar and the
+   .titlebar-drag strip; HUD and menu controls start below the strip so it never swallows a click */
+.titlebar-drag{display:none}
+html.mac-titlebar{--titlebar:30px}
+html.mac-titlebar.is-fullscreen{--titlebar:0px}
+html.mac-titlebar:not(.is-fullscreen) .titlebar-drag{display:block;position:fixed;top:0;left:0;right:0;height:var(--titlebar);z-index:20;-webkit-app-region:drag;-webkit-user-select:none}
+html.mac-titlebar :is(button,input,select,a,canvas){-webkit-app-region:no-drag}
+html.mac-titlebar .hud{padding-top:calc(var(--titlebar) + 12px)}
+html.mac-titlebar .menu{padding-top:calc(var(--titlebar) + 56px)}
+html.mac-titlebar .corner-btn{top:calc(var(--titlebar) + 10px)}
+
+/* iPhone touch polish: no double-tap zoom anywhere, nothing scrolls or bounces during a race,
+   bigger invisible hit areas around the discs and a press "kick" that stands in for haptics */
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body:has(#hud:not([hidden])){touch-action:none;overscroll-behavior:none}
+.touch button{position:relative}
+.touch button::after{content:"";position:absolute;inset:-14px;border-radius:50%}
+.touch .boost::after{inset:-10px}
+.touch button:active{transform:scale(.93)}
+@media (prefers-reduced-motion:reduce){ .touch button:active{transform:none} }

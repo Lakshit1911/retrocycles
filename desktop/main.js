@@ -2,7 +2,8 @@
 
    - serves the bundled game (desktop/app, built by `npm run build-app`) from http://localhost:<port>
    - one 16:9 window (1600x900 by default) that remembers its size, position and fullscreen state
-   - F11 / Alt+Enter toggle fullscreen; no menu bar
+   - F11 / Alt+Enter toggle fullscreen; no menu bar (macOS: native app menu, Ctrl+Cmd+F, hidden-inset
+     title bar with the traffic lights over the game and a draggable strip along the top)
    - Google sign-in popups open as child windows; other links open in the system browser
    - optional Steamworks (achievements, rich presence, overlay) through steamworks.js; the game runs
      the same without Steam
@@ -21,6 +22,7 @@ const path = require('node:path');
 const { createServer, portCandidates } = require('./src/server');
 const { createSteam, readAppId, restartAppIfNecessary, DEV_APP_ID } = require('./src/steam');
 const { readState, fitBounds, trackWindow, MIN } = require('./src/window-state');
+const { menuTemplate, aboutOptions } = require('./src/menu');
 const pkg = require('./package.json');
 
 const CFG = pkg.phantomRun || {};
@@ -30,6 +32,9 @@ const NO_STEAM = process.argv.includes('--no-steam') || process.env.PHANTOM_NO_S
 const DEBUG = !app.isPackaged || process.env.PHANTOM_DEBUG === '1';
 const APP_DIR = path.join(__dirname, 'app');
 const BG = '#040508';
+const MAC = process.platform === 'darwin';
+// macOS: no title bar, the traffic lights float over the game (preload.js adds a drag strip)
+const TITLE_BAR = MAC ? 'hiddenInset' : 'default';
 const log = (...a) => console.log('[phantom]', ...a);
 
 // Hosts allowed to open as sign-in popups (Firebase auth handler + Google account chooser)
@@ -118,6 +123,8 @@ function createWindow(saved, stateFile){
     title: 'Phantom Run',
     autoHideMenuBar: true,
     fullscreenable: true,
+    titleBarStyle: TITLE_BAR,
+    ...(MAC ? {trafficLightPosition:{x:14, y:14}} : {}),
     icon: process.platform === 'linux' && fs.existsSync(icon) ? icon : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -137,6 +144,10 @@ function createWindow(saved, stateFile){
     if (saved.fullscreen) w.setFullScreen(true);
   });
   if (!SMOKE) trackWindow(w, stateFile, () => ({port:server.port}));
+  // The page hides its title-bar strip in fullscreen (no traffic lights there)
+  const sendFs = on => { if (!w.isDestroyed()) w.webContents.send('app:fullscreen-changed', on); };
+  w.on('enter-full-screen', () => sendFs(true));
+  w.on('leave-full-screen', () => sendFs(false));
 
   const wc = w.webContents;
   wc.on('before-input-event', (e, input) => {
@@ -174,14 +185,10 @@ function createWindow(saved, stateFile){
 }
 
 function setupMenu(){
-  if (process.platform !== 'darwin') { Menu.setApplicationMenu(null); return; }
   // macOS needs a menu for Cmd+Q and copy/paste in the sign-in fields; it lives in the system menu bar
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {role:'appMenu'},
-    {role:'editMenu'},
-    {label:'View', submenu:[{role:'togglefullscreen'}, ...(DEBUG ? [{role:'reload'}, {role:'toggleDevTools'}] : [])]},
-    {role:'windowMenu'}
-  ]));
+  const template = menuTemplate({platform:process.platform, appName:app.name || 'Phantom Run', debug:DEBUG});
+  Menu.setApplicationMenu(template ? Menu.buildFromTemplate(template) : null);
+  if (MAC) app.setAboutPanelOptions(aboutOptions({appName:app.name || 'Phantom Run', version:app.getVersion(), electron:process.versions.electron}));
 }
 
 function setupPermissions(){
@@ -200,7 +207,8 @@ function setupIpc(){
   ipcMain.on('desktop:info', e => {
     e.returnValue = fromGame(e) ? {
       steamAvailable: steam.available, appId: steam.available ? steam.appId : null,
-      version: app.getVersion(), platform: process.platform, webUrl: CFG.webUrl || ''
+      version: app.getVersion(), platform: process.platform, webUrl: CFG.webUrl || '',
+      titleBar: TITLE_BAR, fullscreen: !!(win && win.isFullScreen())
     } : null;
   });
   const handle = (channel, fn) => ipcMain.handle(channel, (e, ...args) => (fromGame(e) ? fn(...args) : null));
@@ -237,7 +245,7 @@ function runSmoke(w){
   w.webContents.once('did-finish-load', async () => {
     try {
       const r = await w.webContents.executeJavaScript(`(${smokeScript.toString()})()`, true);
-      finish({...r, offline:OFFLINE, fullscreenable:w.isFullScreenable(), bounds:w.getBounds(), menuBarVisible:w.isMenuBarVisible()});
+      finish({...r, offline:OFFLINE, fullscreenable:w.isFullScreenable(), bounds:w.getBounds(), menuBarVisible:w.isMenuBarVisible(), titleBar:TITLE_BAR});
     } catch (e) { finish({ok:false, error:String(e && e.message || e)}); }
   });
 }
@@ -256,6 +264,7 @@ async function smokeScript(){
     loaded:[...document.fonts].filter(f => f.status === 'loaded').map(f => `${f.family} ${f.weight}`)};
   out.remoteScripts = [...document.scripts].map(s => s.src).filter(s => s && !s.startsWith(location.origin));
   out.platformAttr = document.documentElement.dataset.platform || null;
+  out.titleBarStrip = !!document.querySelector('.titlebar-drag');
   out.canvas = !!document.querySelector('#stage canvas');
   await until(() => !$('pressStart').hidden, 3000);
   $('pressStart').click();

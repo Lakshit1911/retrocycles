@@ -1,0 +1,16 @@
+{
+  "appId": "app.phantomrun.game",
+  "appName": "Phantom Run",
+  "webDir": "www",
+  "backgroundColor": "#040508",
+  "loggingBehavior": "debug",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#040508",
+    "scrollEnabled": false,
+    "allowsLinkPreview": false,
+    "preferredContentMode": "mobile",
+    "webContentsDebuggingEnabled": false
+  },
+  "plugins": {}
+}

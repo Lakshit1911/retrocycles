@@ -5,7 +5,7 @@
    popup), and then nothing is exposed.
 
    window.phantomDesktop = {
-     isDesktop: true, version, platform, webUrl,
+     isDesktop: true, version, platform, webUrl, titleBar,   // titleBar: 'hiddenInset' on macOS
      steam: {
        available,                       // true when Steam is running and initialised for this app
        appId,                           // number or null
@@ -33,6 +33,7 @@ if (info) {
     version: info.version,
     platform: info.platform,
     webUrl: info.webUrl,
+    titleBar: info.titleBar || 'default',
     steam: {
       available: !!info.steamAvailable,
       appId: info.appId,
@@ -47,4 +48,24 @@ if (info) {
     openExternal: url => call('app:open-external', str(url, 2048)).then(Boolean),
     quit: () => call('app:quit')
   });
+
+  // macOS hidden-inset title bar: the traffic lights sit over the page, so add a draggable strip along
+  // the top (CSS in css/style.css under html.mac-titlebar keeps HUD and menu controls below it). The
+  // strip disappears in fullscreen, where macOS hides the traffic lights.
+  if (info.platform === 'darwin' && info.titleBar === 'hiddenInset') {
+    const root = () => document.documentElement;
+    const setFs = on => { if (root()) root().classList.toggle('is-fullscreen', !!on); };
+    const mount = () => {
+      root().classList.add('mac-titlebar');
+      setFs(info.fullscreen);
+      if (!document.querySelector('.titlebar-drag')) {
+        const strip = document.createElement('div');
+        strip.className = 'titlebar-drag';
+        strip.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(strip);
+      }
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, {once:true}); else mount();
+    ipcRenderer.on('app:fullscreen-changed', (_, on) => setFs(on));
+  }
 }
