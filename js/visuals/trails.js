@@ -47,22 +47,23 @@ const wallFragment = `
   }`;
 const glowVertex = `
   attribute float aS; attribute float aDist; attribute float aA;
-  varying float vS; varying float vD; varying float vA;
+  varying float vS; varying float vD; varying float vA; varying float vNear;
   #include <fog_pars_vertex>
   void main(){
     vS = aS; vD = aDist; vA = aA;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vNear = smoothstep(${VC.trail.glowNear[0].toFixed(2)}, ${VC.trail.glowNear[1].toFixed(2)}, -mvPosition.z);
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
   }`;
 const glowFragment = `
   uniform vec3 uColor; uniform float uLen; uniform float uFade;
-  varying float vS; varying float vD; varying float vA;
+  varying float vS; varying float vD; varying float vA; varying float vNear;
   #include <fog_pars_fragment>
   void main(){
     float s = 1.0 - abs(vS);
     float tip = 1.0 + 1.2 * exp(-max(uLen - vD, 0.0) / 2.0);
-    gl_FragColor = vec4(uColor * s * s * ${VC.trail.glowIntensity.toFixed(2)} * tip * uFade * vA, 1.0);
+    gl_FragColor = vec4(uColor * s * s * ${VC.trail.glowIntensity.toFixed(2)} * tip * uFade * vA * vNear, 1.0);
     #ifdef USE_FOG
       #ifdef FOG_EXP2
         float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);

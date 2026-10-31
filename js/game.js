@@ -1077,7 +1077,9 @@ function updateHero(dt){
   if (!heroOn) return;
   heroSpin += dt * VC.showroom.spin;
   const d = VC.showroom.distance * Math.max(1, VC.showroom.minAspect / camera.aspect);
-  hero.group.position.set(0, -d * heroDrop, -d);
+  // short landscape screens lay the garage out in two columns: the craft turns in the left one
+  const shift = heroDrop === VC.showroom.garageDrop && innerHeight <= 520 && camera.aspect > 1.4 ? -d * VC.showroom.landscapeShift : 0;
+  hero.group.position.set(shift, -d * heroDrop, -d);
   heroQ.copy(camera.quaternion).invert().multiply(heroYaw.setFromAxisAngle(UP, heroSpin));
   hero.group.quaternion.copy(heroQ);
   hero.ud.update(dt, 0);

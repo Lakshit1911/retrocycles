@@ -62,7 +62,10 @@ button:focus-visible,input:focus-visible{outline:1px solid var(--accent);outline
 #msg{font-family:var(--display);font-size:clamp(28px,7vw,72px);letter-spacing:.18em;line-height:1.1;color:var(--ink);
   text-shadow:0 0 24px color-mix(in srgb, var(--accent) 45%, transparent);overflow-wrap:anywhere;padding-inline:8px}
 #sub{font-family:var(--mono);font-size:11px;letter-spacing:.32em;color:var(--dim);margin-top:14px;text-transform:uppercase}
-.bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:16px}
+/* radar | gauge (always centred) | key hints */
+.bottom{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:end;gap:16px}
+.bottom #radar{justify-self:start}
+.bottom .hints{justify-self:end}
 #radar{width:118px;height:118px;border:1px solid var(--line);border-radius:var(--r);background:rgba(11,13,18,.55);
   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);flex:none}
 .gauge{display:grid;gap:8px;min-width:0;width:min(280px,46vw)}
@@ -149,7 +152,9 @@ h2{font-family:var(--display);font-size:clamp(17px,4.4vw,22px);letter-spacing:.1
   font-variant:small-caps;animation:breathe 2.6s ease-in-out infinite}
 .press::after{content:"";display:block;height:1px;margin:10px auto 0;width:60%;background:linear-gradient(90deg,transparent,var(--accent),transparent)}
 @keyframes breathe{0%,100%{opacity:.45}50%{opacity:1}}
-.foot{text-align:center;color:var(--faint)}
+.foot{text-align:center;color:var(--faint);text-wrap:balance}
+.eyebrow{text-wrap:balance}
+.meter-row .tag{white-space:nowrap}
 
 /* Buttons */
 .ride{font-family:var(--display);font-size:12.5px;letter-spacing:.32em;text-transform:uppercase;padding:17px 18px;border:1px solid var(--accent-line);border-radius:var(--r);
@@ -353,9 +358,14 @@ kbd{font-family:var(--mono);font-size:10.5px;color:var(--ink);border:1px solid v
   #radar{width:84px;height:84px}
   .hints{display:none}
   .keys{grid-template-columns:minmax(0,1fr)}
-  .board{max-width:100%;justify-content:flex-start}
-  .chip{padding:4px 7px;gap:6px}
-  .chip .name{max-width:7ch}
+  /* rider board: a compact column at the top right, one chip per rider, no wrapping */
+  .top{flex-wrap:nowrap}
+  .board{flex-direction:column;align-items:stretch;flex-wrap:nowrap;gap:3px;max-width:none;flex:none}
+  .chip{padding:3px 7px;gap:6px;font-size:9.5px;letter-spacing:.1em}
+  .chip .name{max-width:8ch;flex:1}
+  .chip .pip{width:2px;height:7px}
+  .meter-row .tag{font-size:9px;letter-spacing:.12em}
+  .wide{display:none}
   #spd{font-size:34px}
   .tile{min-height:80px;padding:14px 12px}
   .screen{gap:16px}
@@ -384,6 +394,14 @@ kbd{font-family:var(--mono);font-size:10.5px;color:var(--ink);border:1px solid v
   .tile span{display:none}
   #msg{font-size:clamp(24px,9vh,48px)}
   #radar{width:72px;height:72px}
+  #spd{font-size:30px}
+  .gauge{width:min(240px,40vw);gap:6px}
+  /* garage: heading left, panel right, the craft turning between them */
+  .garage-screen{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,380px);align-items:start;gap:14px 24px;min-height:0}
+  .garage-screen .garage-panel{margin-top:0;padding:14px;gap:10px}
+  .garage-blurb,#garageHint{display:none}
+  .swatch{max-width:44px}
+  .swatches{justify-content:center;grid-template-columns:repeat(6,minmax(0,44px))}
   .touch button{--d:clamp(56px,17vh,76px)}
   .touch .boost{--d:clamp(50px,14vh,64px)}
   body.coarse .hud{padding-block-end:calc(env(safe-area-inset-bottom,0px) + clamp(56px,17vh,76px) + 22px)}

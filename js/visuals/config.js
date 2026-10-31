@@ -47,7 +47,8 @@ export const VISUAL_CONFIG = {
     whiteCore:0.6,                       // white in the band's core
     tipBoost:1.4, tipLength:1.6,         // extra brightness right behind the craft (cells)
     fogKeep:0.6,                         // walls only take this share of the fog, so far walls still read
-    glowIntensity:0.38, glowWidth:2.0,   // soft glow strip on the floor
+    glowIntensity:0.32, glowWidth:1.7,   // soft glow strip on the floor
+    glowNear:[3, 11],                    // the floor glow fades in over this camera distance (cells): your own trail doesn't flood the screen
     collapse:0.6                         // seconds for a crashed wall to fold down and fade
   },
   render: {
@@ -118,7 +119,7 @@ export const VISUAL_CONFIG = {
     shake:{boost:0.05, crash:0.9, decay:2.2}
   },
   // The turntable Phantom on the title and garage screens (camera space)
-  showroom:{scale:1.3, distance:5.6, drop:0.08, garageDrop:-0.1, minAspect:1.0, spin:0.35, light:[1.8, 2.2, -1], lightIntensity:3.2},
+  showroom:{scale:1.3, distance:5.6, drop:0.08, garageDrop:-0.1, minAspect:0.75, landscapeShift:0.42, spin:0.35, light:[1.8, 2.2, -1], lightIntensity:3.2},
   effects: {
     heat:{max:900, size:0.12, life:0.6, rate:8, ratePerSpeed:1.0, back:2.5, rise:0.6, spread:0.6, brightness:0.9},
     shards:{count:80, speed:9, up:7, spin:14, life:1.2, size:0.32, gravity:16},
