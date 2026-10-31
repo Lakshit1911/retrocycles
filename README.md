@@ -18,12 +18,23 @@ js/visuals/trails.js     shader light-wall ribbons and floor glow strips
 js/visuals/effects.js    thruster heat, crash shards + flash, boost streaks, spawn scan line
 js/visuals/camera.js     chase / cockpit / overview camera, FOV with speed, bank tilt, shake
 js/vendor/three-r128/    pinned three.js r128 add-ons (EffectComposer, bloom, RoomEnvironment)
-js/ui.js                 screens, sign-in, host/join flow, leaderboard
+js/ui.js                 screens, sign-in, host/join flow, leaderboard, profile, signature reveal
+js/progression/          skill rating (Glicko-2), seasons, signature colour, colour clashes (pure, Node-tested)
 js/net.js                Realtime Database rooms (host / join / inputs / snapshots)
 js/firebase.js           Firebase auth, rider profiles, stats
 js/config.js             Firebase web config
 database.rules.json      Realtime Database security rules
+docs/progression.md      rating, seasons, signature colours, metrics contract for the game
+tests/                   node tests/rating.test.mjs · colour.test.mjs · signature.test.mjs
 ```
+
+## Rating and signature light
+
+Signed-in riders get a Glicko-2 skill rating per season (calendar quarter). Online rivals count in full,
+AI rivals at half weight, so solo races count too. After 5 rated matches in a season the rider is placed on
+the Rating leaderboard and their **signature light** is revealed: a colour derived from how they ride (hue)
+and how well (brightness), with a generated name. It drifts a little each season. Details and the data model:
+`docs/progression.md`. Run the tests with `node tests/rating.test.mjs` (and `colour`, `signature`).
 
 ## Look and feel
 
@@ -36,7 +47,7 @@ and drops a level automatically if the frame rate stays under 45 fps for 3 secon
 
 1. **Authentication → Sign-in method**: enable **Email/Password** and **Google**.
 2. **Authentication → Settings → Authorized domains**: add your Vercel domain(s), e.g. `<project>.vercel.app` (and any custom domain).
-3. **Realtime Database → Rules**: paste the contents of `database.rules.json` and publish. Republish whenever the file changes (the Garage colour needs the latest version).
+3. **Realtime Database → Rules**: paste the contents of `database.rules.json` and publish. Republish whenever the file changes (the Garage colour and the rating / season / signature / accent fields need the latest version).
 4. **Google sign-in on your domain** (Google Cloud Console → project `retrocycles-e9965` → APIs & Services → Credentials → OAuth 2.0 Client IDs → *Web client (auto created by Google Service)*):
    - Authorized JavaScript origins: `https://<your-domain>`
    - Authorized redirect URIs: `https://<your-domain>/__/auth/handler`
