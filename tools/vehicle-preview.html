@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vehicle Preview</title>
+<style>
+  :root { --bg:#040508; --panel:rgba(11,13,18,0.86); --line:#1d222c; --text:#e4e8ef; --dim:#7f8796; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.4 system-ui, sans-serif; overflow:hidden; }
+  canvas { display:block; touch-action:none; }
+  #ui { position:fixed; left:16px; top:16px; width:260px; max-width:calc(100vw - 32px); box-sizing:border-box; padding:12px 14px;
+        background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+  #ui.hidden { display:none; }
+  h1 { font-size:13px; letter-spacing:.14em; text-transform:uppercase; margin:0 0 10px; font-weight:600; }
+  label { display:block; color:var(--dim); margin:10px 0 4px; }
+  input[type=range] { width:100%; }
+  .row { display:flex; flex-wrap:wrap; gap:6px; }
+  .sw { width:26px; height:26px; border-radius:50%; border:2px solid transparent; cursor:pointer; padding:0; }
+  .sw.on { border-color:#fff; }
+  button.b { background:#11141b; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 8px; cursor:pointer; font:inherit; }
+  button.b.on { border-color:#8ea3c9; }
+  #stats { margin-top:10px; color:var(--dim); font:11px/1.5 ui-monospace, monospace; white-space:pre; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <h1>Phantom GT preview</h1>
+  <label>Light colour</label>
+  <div class="row" id="colors"></div>
+  <label>Show</label>
+  <div class="row" id="show">
+    <button class="b on" data-show="gt">GT</button>
+    <button class="b" data-show="both">GT + Vanta</button>
+    <button class="b" data-show="vanta">Vanta</button>
+  </div>
+  <label>View</label>
+  <div class="row" id="views"></div>
+  <label>Speed <span id="speedV">0</span></label>
+  <input id="speed" type="range" min="0" max="80" step="1" value="0">
+  <label>Lean <span id="leanV">0</span></label>
+  <input id="lean" type="range" min="-0.6" max="0.6" step="0.01" value="0">
+  <label><input id="spin" type="checkbox" checked> Turntable</label>
+  <div id="stats"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="../js/vendor/three-r128/CopyShader.js"></script>
+<script src="../js/vendor/three-r128/LuminosityHighPassShader.js"></script>
+<script src="../js/vendor/three-r128/GammaCorrectionShader.js"></script>
+<script src="../js/vendor/three-r128/EffectComposer.js"></script>
+<script src="../js/vendor/three-r128/RenderPass.js"></script>
+<script src="../js/vendor/three-r128/ShaderPass.js"></script>
+<script src="../js/vendor/three-r128/UnrealBloomPass.js"></script>
+<script src="../js/vendor/three-r128/RoomEnvironment.js"></script>
+<script type="module">
+import { createPhantomGT } from '../js/vehicles/phantom-gt.js';
+import { createVanta } from '../js/vanta.js';
+
+const params = new URLSearchParams(location.search);
+const lin = hex => new THREE.Color(hex).convertSRGBToLinear();
+const COLORS = [0xff2a3d, 0x21d4ff, 0xffa21f, 0x8cff2e, 0xb44dff, 0xe8eef8];
+
+const renderer = new THREE.WebGLRenderer({ antialias: false, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = lin(0x040508);
+const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.05, 200);
+
+// Night showroom reflections: RoomEnvironment with its walls darkened, light panels kept
+const pmrem = new THREE.PMREMGenerator(renderer), room = new THREE.RoomEnvironment();
+room.traverse(o => {
+  if (!o.material) return;
+  if (o.material.isMeshStandardMaterial) o.material.color.setScalar(0.025);
+  else if (o.material.isMeshBasicMaterial) o.material.color.multiplyScalar(0.7);
+});
+scene.environment = pmrem.fromScene(room, 0.04).texture;
+
+// Lights: cool fill, a shadow-casting key, a coloured rim
+scene.add(new THREE.HemisphereLight(lin(0x3b4a6b), lin(0x050609), 0.32));
+const key = new THREE.DirectionalLight(lin(0xd6e2ff), 0.9);
+key.position.set(-5, 9, 4);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+Object.assign(key.shadow.camera, { left: -4, right: 4, top: 4, bottom: -4, near: 1, far: 30 });
+key.shadow.bias = -0.0005;
+scene.add(key);
+const rim = new THREE.SpotLight(0xffffff, 2.2, 14, 0.5, 0.9, 1.5);
+rim.position.set(3, 3.2, -4.5);
+scene.add(rim, rim.target);
+
+// Polished dark floor; the craft are mirrored beneath it so the floor reads as a reflection
+const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 64), new THREE.MeshStandardMaterial({
+  color: lin(0x06070a), metalness: 0.5, roughness: 0.22, transparent: true, opacity: 0.8, envMapIntensity: 0.18
+}));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+floor.renderOrder = 1;
+scene.add(floor);
+const shadowCatcher = new THREE.Mesh(new THREE.CircleGeometry(30, 64), new THREE.ShadowMaterial({ opacity: 0.55 }));
+shadowCatcher.rotation.x = -Math.PI / 2;
+shadowCatcher.position.y = 0.001;
+shadowCatcher.receiveShadow = true;
+shadowCatcher.renderOrder = 2;
+scene.add(shadowCatcher);
+scene.fog = new THREE.Fog(lin(0x040508).getHex(), 9, 22);
+
+// riders.js: linearise the fixed sRGB paints, leave accent-driven materials alone
+function linearizeFixedColours(root, accentHex) {
+  const acc = new THREE.Color(accentHex), caliper = acc.clone().multiplyScalar(0.6), seen = new Set();
+  root.traverse(o => {
+    const m = o.material;
+    if (!m || seen.has(m) || m.isShaderMaterial) return;
+    seen.add(m);
+    if (m.color && !m.color.equals(acc) && !m.color.equals(caliper)) m.color.convertSRGBToLinear();
+    if (m.emissive) m.emissive.convertSRGBToLinear();
+  });
+}
+function stats(root) {
+  let tris = 0; const mats = new Set();
+  root.traverse(o => {
+    if (!o.geometry) return;
+    const g = o.geometry;
+    tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => mats.add(m));
+  });
+  return { tris: Math.round(tris), materials: mats.size };
+}
+
+let colorIdx = Math.max(0, COLORS.indexOf(parseInt(params.get('color') || 'ff2a3d', 16)));
+const accentLin = () => lin(COLORS[colorIdx]).getHex();
+
+const builds = [];
+function build(fn, label) {
+  const t0 = performance.now();
+  const root = fn(THREE, { hover: true, color: accentLin() });
+  builds.push({ label, ms: performance.now() - t0 });
+  linearizeFixedColours(root, accentLin());
+  root.traverse(o => { if (o.isMesh && o.castShadow) o.receiveShadow = true; });
+  return root;
+}
+const gt = build(createPhantomGT, 'gt-first');
+const vanta = build(createVanta, 'vanta');
+// warm builds (textures are cached after the first)
+const warm = [];
+for (let i = 0; i < 5; i++) { const t0 = performance.now(); createPhantomGT(THREE, { hover: true, color: accentLin() }); warm.push(performance.now() - t0); }
+builds.push({ label: 'gt-warm-avg', ms: warm.reduce((a, b) => a + b, 0) / warm.length });
+
+const stage = new THREE.Group();
+scene.add(stage);
+const cars = [gt, vanta];
+const mirrors = cars.map(c => {
+  const ud = c.userData; c.userData = {};
+  const m = c.clone();
+  c.userData = ud;
+  m.scale.y *= -1;
+  m.traverse(o => { o.castShadow = false; if (o.material && o.material.blending === THREE.AdditiveBlending) o.visible = false; });
+  return m;
+});
+const pairs = cars.map((c, i) => {
+  const holder = new THREE.Group();
+  holder.add(c, mirrors[i]);
+  stage.add(holder);
+  return { holder, car: c, mirror: mirrors[i], mcraft: mirrors[i].children[0] };
+});
+
+let show = params.get('show') || 'gt';
+function layout() {
+  pairs[0].holder.visible = show !== 'vanta';
+  pairs[1].holder.visible = show !== 'gt';
+  pairs[0].holder.position.x = show === 'both' ? -0.75 : 0;
+  pairs[1].holder.position.x = show === 'both' ? 0.75 : 0;
+  document.querySelectorAll('#show button').forEach(b => b.classList.toggle('on', b.dataset.show === show));
+}
+layout();
+
+// Camera: orbit around a target (drag to orbit, wheel to zoom), plus named views
+const orbit = { yaw: 0.7, pitch: 0.22, dist: 7, target: new THREE.Vector3(0, 0.55, 0), fov: 35 };
+const VIEWS = {
+  front34: { yaw: -0.75 + Math.PI, pitch: 0.2, dist: 6.6, fov: 35, ty: 0.5 },
+  side:    { yaw: Math.PI / 2, pitch: 0.04, dist: 7.2, fov: 35, ty: 0.55 },
+  rear34:  { yaw: 0.65, pitch: 0.24, dist: 6.6, fov: 35, ty: 0.55 },
+  top:     { yaw: 0.0001, pitch: 1.45, dist: 8, fov: 35, ty: 0.3 },
+  hero:    { yaw: -0.55 + Math.PI, pitch: 0.03, dist: 5.2, fov: 32, ty: 0.42 },
+  front:   { yaw: Math.PI, pitch: 0.08, dist: 7, fov: 32, ty: 0.5 },
+  rear:    { yaw: 0, pitch: 0.1, dist: 7, fov: 32, ty: 0.5 },
+  chase:   { chase: true }
+};
+let view = params.get('view') || 'front34', chase = false;
+function setView(name) {
+  const v = VIEWS[name]; if (!v) return;
+  view = name; chase = !!v.chase;
+  if (!chase) { orbit.yaw = v.yaw; orbit.pitch = v.pitch; orbit.dist = v.dist; orbit.fov = v.fov; orbit.target.y = v.ty; }
+  document.querySelectorAll('#views button').forEach(b => b.classList.toggle('on', b.dataset.view === name));
+}
+const viewsEl = document.getElementById('views');
+Object.keys(VIEWS).forEach(n => { const b = document.createElement('button'); b.className = 'b'; b.textContent = n; b.dataset.view = n; b.onclick = () => { setView(n); spin = false; spinEl.checked = false; }; viewsEl.appendChild(b); });
+
+// The game's chase camera: 4.4 cells behind, 1.45 up, looking 6.5 ahead at 0.6, FOV 42, craft at scale 0.55
+const GAME_SCALE = 0.55;
+function placeCamera() {
+  if (chase) {
+    stage.scale.setScalar(GAME_SCALE);
+    rim.position.set(1.65, 1.76, -2.5);
+    camera.fov = 42;
+    camera.position.set(0, 1.45, 4.4);
+    camera.lookAt(0, 0.6, -6.5);
+  } else {
+    stage.scale.setScalar(1);
+    rim.position.set(3, 3.2, -4.5);
+    camera.fov = orbit.fov;
+    const cp = Math.cos(orbit.pitch);
+    camera.position.set(orbit.target.x + Math.sin(orbit.yaw) * cp * orbit.dist, orbit.target.y + Math.sin(orbit.pitch) * orbit.dist, orbit.target.z + Math.cos(orbit.yaw) * cp * orbit.dist);
+    camera.lookAt(orbit.target);
+  }
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+let drag = null;
+renderer.domElement.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; renderer.domElement.setPointerCapture(e.pointerId); });
+renderer.domElement.addEventListener('pointermove', e => {
+  if (!drag || chase) return;
+  orbit.yaw -= (e.clientX - drag.x) * 0.006;
+  orbit.pitch = Math.max(-0.05, Math.min(1.5, orbit.pitch + (e.clientY - drag.y) * 0.004));
+  drag = { x: e.clientX, y: e.clientY };
+});
+renderer.domElement.addEventListener('pointerup', () => { drag = null; });
+renderer.domElement.addEventListener('wheel', e => { orbit.dist = Math.max(2.5, Math.min(16, orbit.dist * (1 + Math.sign(e.deltaY) * 0.08))); }, { passive: true });
+
+// Controls
+const colorsEl = document.getElementById('colors');
+COLORS.forEach((c, i) => {
+  const b = document.createElement('button');
+  b.className = 'sw'; b.style.background = '#' + c.toString(16).padStart(6, '0'); b.title = b.style.background;
+  b.onclick = () => setColorIdx(i);
+  colorsEl.appendChild(b);
+});
+function setColorIdx(i) {
+  colorIdx = i;
+  cars.forEach(c => c.userData.setColor(accentLin()));
+  rim.color.copy(lin(COLORS[i]));
+  colorsEl.querySelectorAll('.sw').forEach((b, j) => b.classList.toggle('on', j === i));
+}
+document.querySelectorAll('#show button').forEach(b => b.onclick = () => { show = b.dataset.show; layout(); });
+const speedEl = document.getElementById('speed'), leanEl = document.getElementById('lean'), spinEl = document.getElementById('spin');
+let speed = +(params.get('speed') || 0), lean = +(params.get('lean') || 0), spin = params.get('spin') !== '0';
+speedEl.value = speed; leanEl.value = lean; spinEl.checked = spin;
+speedEl.oninput = () => { speed = +speedEl.value; };
+leanEl.oninput = () => { lean = +leanEl.value; };
+spinEl.onchange = () => { spin = spinEl.checked; };
+if (params.get('ui') === '0') document.getElementById('ui').classList.add('hidden');
+
+// Post: render -> bloom -> gamma (r128 renders targets in linear)
+const composer = new THREE.EffectComposer(renderer);
+composer.addPass(new THREE.RenderPass(scene, camera));
+const bloom = new THREE.UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.85, 0.55, 0.78);
+composer.addPass(bloom);
+composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
+
+const s = stats(gt), sv = stats(vanta);
+document.getElementById('stats').textContent =
+  `GT     ${s.tris} tris, ${s.materials} materials\n` +
+  `Vanta  ${sv.tris} tris, ${sv.materials} materials\n` +
+  builds.map(b => `${b.label.padEnd(12)} ${b.ms.toFixed(1)} ms`).join('\n');
+
+let last = performance.now(), turn = 0;
+function frame(dt) {
+  if (spin && !chase) orbit.yaw += dt * 0.35;
+  pairs.forEach(p => {
+    p.car.userData.setLean(lean);
+    p.car.userData.update(dt, speed);
+    p.mcraft.position.copy(p.car.userData.craft.position);
+    p.mcraft.rotation.copy(p.car.userData.craft.rotation);
+  });
+  placeCamera();
+  composer.render();
+}
+function loop(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  frame(dt);
+  requestAnimationFrame(loop);
+}
+setView(view);
+setColorIdx(colorIdx);
+// Hooks for scripted screenshots
+window.__preview = {
+  stats: { gt: s, vanta: sv, builds },
+  setView, setColorIdx, set: o => { if ('show' in o) { show = o.show; layout(); } if ('speed' in o) speed = o.speed; if ('lean' in o) lean = o.lean; if ('spin' in o) spin = o.spin; if (o.orbit) Object.assign(orbit, o.orbit); },
+  step: (n, dt) => { for (let i = 0; i < (n || 1); i++) frame(dt || 1 / 60); }
+};
+if (params.get('manual') !== '1') requestAnimationFrame(loop);
+else frame(1 / 60);
+window.__ready = true;
+</script>
+</body>
+</html>
