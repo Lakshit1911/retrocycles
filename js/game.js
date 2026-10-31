@@ -22,7 +22,7 @@
      keys.burst        Light Burst held (circuit)
      keys.brake        brake held (circuit) */
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
-import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, updatePoseFree, headingYaw } from './visuals/riders.js';
+import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, updatePoseFree, headingYaw, craftOf } from './visuals/riders.js';
 import { createPipeline, lin, linHex, defaultQuality } from './visuals/renderer.js';
 import { SFX } from './audio.js';
 import { emit } from './platform.js';   // achievements / rich presence on desktop; no-op in the browser
@@ -166,7 +166,7 @@ function buildRiders(roster){
   });
   bikes = [];
   roster.forEach((p, i) => {
-    const r = p.paint, mesh = createRiderVisual(r.color);
+    const r = p.paint, mesh = createRiderVisual(r.color, p.craft);
     mesh.group.visible = false; scene.add(mesh.group);
     bikes.push({id:i, r, name:String(p.name || r.name).toUpperCase(), ai:!!p.bot, remote:!!p.remote, gone:false,
       mesh, segs:[], pos:new THREE.Vector3(), vpos:new THREE.Vector3(), alive:false, cleared:true, nt:0, k:0, local:[], gq:[], sched:[], queue:[],
@@ -1051,14 +1051,25 @@ function updateHud(dt){
 /* ---------- Camera ---------- */
 /* ---------- Showroom Phantom (title + garage) ---------- */
 // A turntable craft held in front of the camera, kept upright in world space whatever the camera does
-const hero = createRiderVisual(VC.riders[0].hex);
-hero.group.scale.multiplyScalar(VC.showroom.scale); hero.group.visible = false; camera.add(hero.group);
+let hero = null, heroHex = VC.riders[0].hex;
 const heroLight = new THREE.SpotLight(0xffffff, 0, 18, .55, .9, 1.2);
-heroLight.position.set(...VC.showroom.light); camera.add(heroLight); heroLight.target = hero.group;
+heroLight.position.set(...VC.showroom.light); camera.add(heroLight);
+// Build (or swap) the turntable craft; craft: a VC.crafts key
+function heroCraft(craft){
+  const key = craftOf(craft).key;
+  if (hero && hero.craft === key) return;
+  if (hero) { camera.remove(hero.group); disposeRiderVisual(hero); }
+  hero = createRiderVisual(heroHex, key);
+  hero.group.scale.multiplyScalar(VC.showroom.scale); hero.group.visible = false; camera.add(hero.group);
+  heroLight.target = hero.group;
+}
+heroCraft('gt');
 let heroOn = false, heroSpin = .6, heroDrop = VC.showroom.drop;
 const heroQ = new THREE.Quaternion(), heroYaw = new THREE.Quaternion(), UP = new THREE.Vector3(0, 1, 0);
-function showcase(on, hex, drop){
+function showcase(on, hex, drop, craft){
   heroDrop = drop !== undefined ? drop : VC.showroom.drop;
+  if (hex !== undefined) heroHex = hex;
+  if (craft !== undefined) heroCraft(craft);
   heroOn = !!on; hero.group.visible = heroOn; heroLight.intensity = heroOn ? VC.showroom.lightIntensity : 0;
   if (hex !== undefined) hero.ud.setColor(linHex(hex));
 }
@@ -1101,16 +1112,18 @@ function begin(){
 }
 function startSolo(o){
   SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win, steer:o.steer === 'grid' ? 'grid' : 'free', ...eventCfg(o)};
-  buildRiders([{name:o.name || 'YOU', color:o.color}, ...RIDERS.slice(1, 1 + o.bots).map(r => ({name:r.name, bot:true}))]);
+  buildRiders([{name:o.name || 'YOU', color:o.color, craft:o.craft}, ...RIDERS.slice(1, 1 + o.bots).map((r, j) => ({name:r.name, bot:true, craft:botCraft(j)}))]);
   begin();
 }
 function startOnline(o){
   SFX.init(); mode = o.role; net = o.net; me = o.me; matchId = o.id; turnLog = {};
   fpLog = {}; fpSeq = 0;
   cfg = {diff:o.diff, win:o.win, steer:o.steer === 'free' ? 'free' : 'grid', ...eventCfg(o)};   // rooms from before free steering race on the grid
-  buildRiders(o.roster.map((p, i) => ({name:p.name, bot:p.bot, color:p.color, remote:o.role === 'host' && !p.bot && i !== o.me})));
+  buildRiders(o.roster.map((p, i) => ({name:p.name, bot:p.bot, color:p.color, craft:p.craft, remote:o.role === 'host' && !p.bot && i !== o.me})));
   begin();
 }
+// AI rivals alternate crafts, so a grid shows both
+export const botCraft = j => VC.crafts[(j + 1) % VC.crafts.length].key;
 // Event settings from the menu or the room: anything but 'circuit' is the arena
 function eventCfg(o){
   return {event:o.event === 'circuit' ? 'circuit' : 'arena', laps:[3, 5, 7].includes(+o.laps) ? +o.laps : 3, track:o.track || DEFAULT_TRACK};

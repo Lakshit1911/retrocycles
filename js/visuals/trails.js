@@ -33,9 +33,17 @@ const wallFragment = `
     float shimmer = 0.86 + 0.14 * sin(vD * 1.3 - uTime * 2.4) + 0.3 * pow(0.5 + 0.5 * sin(vD * 0.32 - uTime * 3.6), 14.0);
     // emitted look: hotter right behind the craft's tail
     float tip = 1.0 + ${VC.trail.tipBoost.toFixed(2)} * exp(-max(uLen - vD, 0.0) / ${VC.trail.tipLength.toFixed(2)});
-    vec3 c = uColor * (body + band * ${VC.trail.bandIntensity.toFixed(2)}) * shimmer * tip + vec3(1.0) * core * ${VC.trail.whiteCore.toFixed(2)} * tip;
+    float base = 1.0 - smoothstep(0.0, ${VC.trail.baseLine.toFixed(3)}, vV);   // where the wall meets the floor
+    vec3 c = uColor * (body + band * ${VC.trail.bandIntensity.toFixed(2)} + base * ${VC.trail.baseIntensity.toFixed(2)}) * shimmer * tip + vec3(1.0) * core * ${VC.trail.whiteCore.toFixed(2)} * tip;
     gl_FragColor = vec4(c * uFade * vA, 1.0);
-    #include <fog_fragment>
+    #ifdef USE_FOG
+      #ifdef FOG_EXP2
+        float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);
+      #else
+        float fogFactor = smoothstep(fogNear, fogFar, fogDepth);
+      #endif
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor * ${VC.trail.fogKeep.toFixed(2)});   // walls keep reading through the haze
+    #endif
   }`;
 const glowVertex = `
   attribute float aS; attribute float aDist; attribute float aA;
@@ -55,7 +63,14 @@ const glowFragment = `
     float s = 1.0 - abs(vS);
     float tip = 1.0 + 1.2 * exp(-max(uLen - vD, 0.0) / 2.0);
     gl_FragColor = vec4(uColor * s * s * ${VC.trail.glowIntensity.toFixed(2)} * tip * uFade * vA, 1.0);
-    #include <fog_fragment>
+    #ifdef USE_FOG
+      #ifdef FOG_EXP2
+        float fogFactor = 1.0 - exp(-fogDensity * fogDensity * fogDepth * fogDepth);
+      #else
+        float fogFactor = smoothstep(fogNear, fogFar, fogDepth);
+      #endif
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogFactor * ${VC.trail.fogKeep.toFixed(2)});   // walls keep reading through the haze
+    #endif
   }`;
 
 // Static index data: quad k joins points k and k+1 (two vertices each). Each ribbon wraps it in

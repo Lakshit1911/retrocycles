@@ -9,7 +9,8 @@ export const SIM_CONFIG = {
   bucket:4,              // spatial hash bucket size (units)
   // Steering: yaw rate (rad/s) eases from yawLo at speed vLo down to yawHi at speed vHi
   yawLo:3.6, yawHi:2.2, vLo:12, vHi:26,
-  steerResp:7,           // how fast the steering input ramps (1/s): progressive arcs rather than on/off
+  steerResp:9,           // how fast the steering input ramps in (1/s): progressive arcs rather than on/off
+  steerRelease:16,       // and how fast it lets go or reverses: lines straighten crisply
   grip:20, gripFall:1.5, // sideways slide bleeds off at grip/s, divided by mul^gripFall: boost drifts a little
   snapGap:.9,            // snap turns: at most one per .9 units travelled (grid: one per cell)
   // Boost and slipstream, equivalent to grid mode

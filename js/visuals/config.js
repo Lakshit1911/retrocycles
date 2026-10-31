@@ -18,6 +18,12 @@ export const VISUAL_CONFIG = {
     scale:0.6,           // 4.4 m model -> ~2.6 cells long, ~0.5 cells wide
     originBehindHead:0.75 // cells the craft's origin trails the simulated head, so the nose sits at the head
   },
+  // The crafts a rider can pick in the Garage. scale: model metres -> cells (Xenoth is 4.8 m, so it
+  // gets a little less to sit on the same footprint as the 4.4 m Phantom GT)
+  crafts: [
+    {key:'gt',     name:'Phantom GT', scale:0.6,  blurb:'Sculpted hover racer. Three thrusters, venturi sponsons, a long tail.'},
+    {key:'xenoth', name:'Xenoth',     scale:0.55, blurb:'Biomechanical jet-hover. Living veins, spinning intakes, an afterburner that roars with boost.'}
+  ],
   turn: {
     yawTime:0.15,        // seconds to ease through a 90 degree turn
     bankPeak:0.45,       // radians, into the turn
@@ -27,16 +33,21 @@ export const VISUAL_CONFIG = {
   // Free steering feel: snap turns larger than snapAngle (rad) ease like grid turns; otherwise the
   // craft banks with its yaw rate (bankPerYaw radians of lean per rad/s, capped at bankMax)
   free: {snapAngle:0.6, bankPerYaw:0.13, bankMax:0.5, bankResp:8},
+  // Body motion on springs (visual only): bank stiffness / damping (a little under critical, so a
+  // small overshoot as it settles), and nose pitch per unit of acceleration (model m/s^2), capped
+  motion: {leanStiff:140, leanDamp:19, pitchPerAccel:0.0016, pitchMax:0.07, pitchStiff:60, pitchDamp:13},
   wall: {
-    height:0.5           // 0.9 m at vehicle scale
+    height:0.8           // ~1.4 m at vehicle scale: reads clearly above the craft's nose from the chase camera
   },
   trail: {
     maxPoints:2048,      // fixed buffer size per rider (turn points per round; free mode thins older points)
-    bodyBottom:0.08, bodyTop:0.3,        // dim translucent body, brighter toward the top
-    band:0.14, bandIntensity:2.4,        // bright top band (fraction of height) and its strength
+    bodyBottom:0.22, bodyTop:0.55,       // translucent body, brighter toward the top (solid enough to read at a glance)
+    band:0.16, bandIntensity:2.8,        // bright top band (fraction of height) and its strength
+    baseLine:0.06, baseIntensity:1.2,    // a bright line where the wall meets the floor
     whiteCore:0.6,                       // white in the band's core
     tipBoost:1.4, tipLength:1.6,         // extra brightness right behind the craft (cells)
-    glowIntensity:0.22, glowWidth:1.6,   // soft glow strip on the floor
+    fogKeep:0.6,                         // walls only take this share of the fog, so far walls still read
+    glowIntensity:0.38, glowWidth:2.0,   // soft glow strip on the floor
     collapse:0.6                         // seconds for a crashed wall to fold down and fade
   },
   render: {
@@ -63,8 +74,10 @@ export const VISUAL_CONFIG = {
   track: {
     road:{color:'#0a0c12', metalness:0.55, roughness:0.36, env:0.16, y:0.006},
     lane:{color:'#3a4356', opacity:0.5, width:0.1, dash:2.4, period:6},     // faint dashed centre line
-    edge:{color:'#9fb7ff', intensity:0.5, width:0.1, inset:0.5},             // subtle glow lines just inside the barriers
-    barrier:{height:0.9, thickness:0.35, color:'#0b0d12', edge:'#c9d3e6', edgeIntensity:1.4, edgeWidth:0.07},
+    edge:{color:'#9fb7ff', intensity:0.85, width:0.12, inset:0.5},           // glow lines just inside the barriers
+    // stripe: an emissive band along the inner face (from, to as fractions of the height) so barriers read against the dark road
+    barrier:{height:0.9, thickness:0.35, color:'#1a2030', edge:'#c9d3e6', edgeIntensity:2.0, edgeWidth:0.12,
+      stripe:[0.38, 0.5], stripeColor:'#9fb7ff', stripeIntensity:0.7},
     gate:{color:'#9fb7ff', intensity:0.45, height:4.6, tube:0.04, flash:1.6, flashTime:0.6},
     gantry:{height:6.4, color:'#0b0d12', strip:'#e8eef8', stripIntensity:1.6, checker:0.32},
     pickups:{hover:0.95, bob:0.12, spin:1.6, size:0.5, halo:2.4, glow:0.55,

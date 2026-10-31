@@ -1,7 +1,7 @@
 /* Menus and online flow: title screen, sign-in, home, solo setup, host/join lobby, leaderboard,
    rider profile (rating, season placement, signature light, accent) and the signature reveal ceremony.
    Firebase loads lazily, so the solo game still runs if the network or Firebase is unreachable. */
-import { Game, RIDERS, DIFF } from './game.js';
+import { Game, RIDERS, DIFF, botCraft } from './game.js';
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { SFX } from './audio.js';
 import { emit } from './platform.js';
@@ -41,13 +41,16 @@ const backFromGoogle = (() => {
 })();
 let pendingJoin = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 
-let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson', steer:'free', event:'arena', laps:3};
+let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson', craft:'gt', steer:'free', event:'arena', laps:3};
 try { const s = JSON.parse(localStorage.getItem('rc3d-settings') || 'null'); if (s) settings = Object.assign(settings, s); } catch (e) {}
 const save = () => { try { localStorage.setItem('rc3d-settings', JSON.stringify(settings)); } catch (e) {} };
 const myName = () => (profile && profile.name) || (user && user.displayName) || 'YOU';
 // Your Phantom's light colour: the Garage pick, saved with your profile when signed in
 const myColor = () => (profile && Game.colourOf(profile.color) && profile.color) || (Game.colourOf(settings.color) && settings.color) || 'crimson';
 // Your light: the signature once revealed, else the Garage classic (js/progression/colour.js riderColours)
+// Your craft (Garage): saved on this device and carried in your lobby seat
+const craftKey = k => (VC.crafts.find(c => c.key === k) || VC.crafts[0]).key;
+const myCraft = () => craftKey(settings.craft);
 const myLight = () => riderColours(user ? {...profile, color:myColor()} : {color:myColor()});
 const setAccentCss = css => document.documentElement.style.setProperty('--accent', css);
 const setAccent = key => setAccentCss(Game.colourOf(key).css);
@@ -75,9 +78,9 @@ function show(name, keepResult){
   $('menu').dataset.screen = name;
   // The turntable Phantom shows on the title, in the garage and at the signature reveal; your light is the UI accent
   if (name !== 'reveal') clearReveal();
-  if (name === 'garage') { setAccent(garagePick); Game.showcase(true, Game.colourOf(garagePick).hex, VC.showroom.garageDrop); }
+  if (name === 'garage') { setAccent(garagePick); Game.showcase(true, Game.colourOf(garagePick).hex, VC.showroom.garageDrop, craftPick); }
   else if (name === 'reveal') Game.showcase(true, numOf(REVEAL_NEUTRAL), VC.showroom.garageDrop);
-  else { const c = myLight().primaryHex; setAccentCss(c); Game.showcase(name === 'title', numOf(c), VC.showroom.drop); }
+  else { const c = myLight().primaryHex; setAccentCss(c); Game.showcase(name === 'title', numOf(c), VC.showroom.drop, myCraft()); }
   qa('.screen').forEach(s => s.hidden = s.dataset.screen !== name);
   if (!keepResult) $('result').hidden = true;
   const slot = document.querySelector(`.screen[data-screen="${name}"] [data-slot="settings"]`), blk = $('settingsBlock');
@@ -310,7 +313,7 @@ Game.hooks.quality = (q, auto) => {
 /* ---------- Solo ---------- */
 $('ride').addEventListener('click', () => {
   save(); keepAwake(true); ratedRoster = null;
-  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, name:myName(), color:myColor()});
+  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, name:myName(), color:myColor(), craft:myCraft()});
 });
 
 /* ---------- Match end / quit ---------- */
@@ -368,7 +371,7 @@ async function hostGrid(){
   const tile = document.querySelector('.tile[data-go="host"]');
   await busy(tile, async () => {
     try {
-      room = await NET.Room.host(user.uid, myName(), cfgOut(), myColor());
+      room = await NET.Room.host(user.uid, myName(), cfgOut(), myColor(), myCraft());
       emit('join-room', {host:true, code:room.code});
       watchRoom(); show('lobby');
     } catch (e) { toast('Could not open a grid: ' + (e.message || e)); room = null; }
@@ -389,7 +392,7 @@ $('joinForm').addEventListener('submit', e => {
   if (code.length !== 5) return;
   needAuth(() => busy($('joinGo'), async () => {
     try {
-      room = await NET.Room.join(code, user.uid, myName(), myColor());
+      room = await NET.Room.join(code, user.uid, myName(), myColor(), myCraft());
       emit('join-room', {host:false, code});
       pendingJoin = '';
       if (location.search) history.replaceState(null, '', location.pathname);
@@ -401,7 +404,7 @@ $('joinForm').addEventListener('submit', e => {
 function sortedPlayers(){
   const host = room && (room.isHost ? room.uid : roomView.host);
   return Object.entries(roomView.players || {})
-    .map(([uid, v]) => ({uid, name:(v && v.name) || 'RIDER', t:(v && v.t) || 0, color:v && v.color}))
+    .map(([uid, v]) => ({uid, name:(v && v.name) || 'RIDER', t:(v && v.t) || 0, color:v && v.color, craft:craftKey(v && v.craft)}))
     .sort((a, b) => (b.uid === host) - (a.uid === host) || a.t - b.t);
 }
 /* No two riders share a colour: in join order each rider keeps their Garage pick if it is free,
@@ -436,7 +439,7 @@ function watchRoom(){
         for (const k in known) if (!(k in names) && k !== user.uid) toast(`${known[k]} left the grid`);
       }
       known = names;
-      if (!r.isHost && !p[user.uid] && roomView.status === 'lobby') r.reseat(myName(), myColor());
+      if (!r.isHost && !p[user.uid] && roomView.status === 'lobby') r.reseat(myName(), myColor(), myCraft());
       if (r.isHost && inMatch && matchRoster) matchRoster.forEach((pl, i) => {
         if (!pl.bot && pl.uid !== user.uid && !p[pl.uid] && !gone.has(i)) { gone.add(i); Game.removeRider(i); }
       });
@@ -470,8 +473,8 @@ async function hostStart(){
   if (players.length + bots < 2) return toast('Add an AI rival or wait for a friend to join.');
   const col = assignColours(players, bots);
   const roster = [
-    ...players.map((p, i) => ({name:p.name, uid:p.uid, bot:false, color:col.players[i]})),
-    ...Array.from({length:bots}, (_, j) => ({name:RIDERS[players.length + j].name, uid:'', bot:true, color:col.bots[j]}))
+    ...players.map((p, i) => ({name:p.name, uid:p.uid, bot:false, color:col.players[i], craft:p.craft})),
+    ...Array.from({length:bots}, (_, j) => ({name:RIDERS[players.length + j].name, uid:'', bot:true, color:col.bots[j], craft:botCraft(j)}))
   ];
   const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps};
   await busy($('startMatch'), async () => {
@@ -523,9 +526,9 @@ function renderLobby(){
 }
 
 /* ---------- Garage ---------- */
-let garagePick = 'crimson', garageFrom = 'home';
+let garagePick = 'crimson', craftPick = 'gt', garageFrom = 'home';
 const titleCase = k => k[0].toUpperCase() + k.slice(1);
-function openGarage(from){ garageFrom = from; garagePick = myColor(); renderGarage(); show('garage'); }
+function openGarage(from){ garageFrom = from; garagePick = myColor(); craftPick = myCraft(); renderGarage(); show('garage'); }
 function renderGarage(){
   // In a lobby, colours other riders already hold are shown but locked
   const taken = new Set();
@@ -536,19 +539,28 @@ function renderGarage(){
   $('swatches').innerHTML = VC.riders.map(c =>
     `<button class="swatch" role="radio" style="--c:${c.css}" data-c="${c.key}" aria-label="${titleCase(c.key)}" aria-pressed="${c.key === garagePick}" aria-checked="${c.key === garagePick}"${taken.has(c.key) ? ' disabled title="Another rider in this grid has it"' : ''}></button>`).join('');
   $('garageName').textContent = titleCase(garagePick);
+  // Craft picker
+  const C = VC.crafts.find(c => c.key === craftPick) || VC.crafts[0];
+  $('garageTitle').textContent = C.name;
+  $('garageBlurb').textContent = C.blurb;
+  $('crafts').innerHTML = VC.crafts.map(c =>
+    `<button class="craft-opt" role="radio" data-k="${c.key}" aria-checked="${c.key === craftPick}" aria-pressed="${c.key === craftPick}">${c.name}</button>`).join('');
+  qa('#crafts .craft-opt').forEach(b => b.addEventListener('click', () => {
+    craftPick = b.dataset.k; SFX.click(); Game.showcase(true, Game.colourOf(garagePick).hex, VC.showroom.garageDrop, craftPick); renderGarage();
+  }));
   const sig = user && profile && profile.signature;
   $('garageHint').textContent = sig
     ? `Your signature light, ${sig.name}, is your colour. The classic you pick here is your fallback wherever a signature can't be shown.`
     : 'Your colour is the light your Phantom casts. In a lobby, if someone already rides it, you take the next free one.';
   qa('#swatches .swatch').forEach(b => b.addEventListener('click', () => {
-    garagePick = b.dataset.c; setAccent(garagePick); Game.showcase(true, Game.colourOf(garagePick).hex); renderGarage();
+    garagePick = b.dataset.c; setAccent(garagePick); Game.showcase(true, Game.colourOf(garagePick).hex, VC.showroom.garageDrop, craftPick); renderGarage();
   }));
 }
 $('garageSave').addEventListener('click', async () => {
-  settings.color = garagePick; save();
+  settings.color = garagePick; settings.craft = craftPick; save();
   if (user && FB) { try { await FB.setColor(user.uid, garagePick); profile = {...profile, color:garagePick}; } catch (e) { toast('Saved on this device. Could not reach your profile.'); } }
-  if (room) room.setSeatColor(garagePick);
-  toast(`${titleCase(garagePick)} it is.`);
+  if (room) { room.setSeatColor(garagePick); room.setSeatCraft(craftPick); }
+  toast(`${VC.crafts.find(c => c.key === craftPick).name} in ${titleCase(garagePick)}. Ready.`);
   show(garageFrom);
 });
 $('garageBack').addEventListener('click', () => show(garageFrom));

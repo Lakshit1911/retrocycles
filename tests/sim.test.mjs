@@ -237,7 +237,7 @@ test('host input queue: in order, starving holds steering, backlog catches up', 
 test('prediction + reconciliation: the guest lands where the host has it (latency, batching)', () => {
   // Host world and guest world with the same static walls; batches reach the host LAT ticks late
   const LAT = 7, host = F.createWorld({seed:2}), guest = F.createWorld({seed:2});
-  for (const w of [host, guest]) { F.addWall(w, [-60, -7, 60, -7]); F.addWall(w, [-60, 6, 60, 6]); }
+  for (const w of [host, guest]) { F.addWall(w, [-60, -35, 60, -35]); F.addWall(w, [-60, 12, 60, 12]); }
   const hr = F.addRider(host, {x:-55, z:0, h:0}), gr = F.addRider(guest, {x:-55, z:0, h:0, ghost:true});
   const Q = inputQueue(), hist = [], wire = [];
   let seq = -1, out = '', outQ = 0, snaps = [];

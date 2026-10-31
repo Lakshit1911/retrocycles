@@ -376,7 +376,9 @@ export function drive(w, r, inp = IDLE, dt = DT){
   const C = w.cfg, T = w.track, x0 = r.x, z0 = r.z;
   if (inp.snap && !T) queueSnap(r, inp.snap);
   const steer = inp.steer || 0;
-  r.sv += (steer - r.sv) * Math.min(1, dt * C.steerResp);
+  // ramp in progressively, but let go (or reverse) quicker, so arcs end where you meant them to
+  const resp = steer === 0 || steer * r.sv < 0 ? C.steerRelease : C.steerResp;
+  r.sv += (steer - r.sv) * Math.min(1, dt * resp);
   // Boost and slipstream exactly as grid mode; circuit adds a brake
   const braking = r.braking = !!T && !!inp.brake;
   const boosting = r.boosting = !!inp.boost && !braking && r.energy > .02;

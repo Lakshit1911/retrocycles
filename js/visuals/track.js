@@ -78,12 +78,16 @@ export function createTrackView(scene){
     // Barriers: matte inner face, top and outer face, with a thin emissive line on the inner top edge
     const wallMat = keep(new THREE.MeshStandardMaterial({color:lin(B.color), metalness:.6, roughness:.75, envMapIntensity:.4, side:THREE.DoubleSide}));
     const lineMat = keep(new THREE.MeshBasicMaterial({color:lin(B.edge).multiplyScalar(B.edgeIntensity), toneMapped:false, side:THREE.DoubleSide}));
+    const stripeMat = keep(new THREE.MeshBasicMaterial({color:lin(B.stripeColor).multiplyScalar(B.stripeIntensity), toneMapped:false, side:THREE.DoubleSide}));
     for (const sg of [-1, 1]) {
       const inner = i => sg * half(i), outer = i => sg * (half(i) + B.thickness);
       for (const g of [ribbon(T, inner, inner, 0, B.height), ribbon(T, inner, outer, B.height, B.height), ribbon(T, outer, outer, 0, B.height)]) {
         const m = new THREE.Mesh(keep(g), wallMat); m.receiveShadow = true; grp.add(m);
       }
       grp.add(new THREE.Mesh(keep(ribbon(T, inner, i => sg * (half(i) + B.edgeWidth), B.height + .004, B.height + .004)), lineMat));
+      // emissive stripe along the inner face, just proud of it
+      const face = i => sg * (half(i) - .006);
+      grp.add(new THREE.Mesh(keep(ribbon(T, face, face, B.height * B.stripe[0], B.height * B.stripe[1])), stripeMat));
     }
     // Checkpoint arches (gate 0 is the start / finish gantry)
     const gates = T.gates.map((g, k) => {
