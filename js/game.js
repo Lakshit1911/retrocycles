@@ -3,15 +3,22 @@
      solo  - simulates everything locally
      host  - simulates everything, streams snapshots + turn points to guests
      guest - renders host snapshots, dead-reckons between them and predicts
-             its own turns so steering feels instant */
+             its own turns so steering feels instant
+   Two steering modes (cfg.steer):
+     grid  - the original cell-by-cell race with 90 degree turns (everything below marked grid)
+     free  - continuous steering run by js/sim/free.js (fixed 1/60 s steps); online, guests send
+             per-tick inputs, predict their own rider and reconcile against host snapshots,
+             and see everyone else interpolated ~100 ms behind (the "Free steering" section) */
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
-import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, headingYaw } from './visuals/riders.js';
+import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, updatePoseFree, headingYaw } from './visuals/riders.js';
 import { createPipeline, lin, linHex, defaultQuality } from './visuals/renderer.js';
 import { SFX } from './audio.js';
 import { createArena } from './visuals/arena.js';
 import { createTrails } from './visuals/trails.js';
 import { createEffects } from './visuals/effects.js';
 import { createCameraRig, CAMS } from './visuals/camera.js';
+import * as FS from './sim/free.js';
+import { encodeIn, inputQueue, queuePush, queueTake } from './sim/link.js';
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const N = 128, H = N / 2, BASE = 15, DEATH_WINDOW = 1.4;
@@ -34,7 +41,8 @@ addEventListener('touchstart', () => {
 }, {once:true, passive:true});
 
 export const hooks = {end:null, quit:null, quality:null};
-let cfg = {diff:'rider', win:5};
+let cfg = {diff:'rider', win:5, steer:'free'};
+const isFree = () => cfg.steer === 'free';
 let mode = 'solo', net = null, matchId = '', me = 0, lastW = -1, snapAcc = 0, sentBoost = false;
 let turnLog = {};
 
@@ -99,7 +107,8 @@ const headingOf = d => headingYaw(DIRS[d][0], DIRS[d][1]);
 let bikes = [], player = null, scores = [], round = 0;
 let state = 'demo', cd = 0, overT = 0, spectT = 0, deadT = 0, demoT = 0, paused = false, msgT = 0;
 let camMode = 0, lastCd = 4;
-const keys = {boost:false};
+const keys = {boost:false, l:false, r:false, snapQ:[]};   // l / r: free-mode steering held; snapQ: snap turns waiting for a tick
+const steerKey = () => (keys.r ? 1 : 0) - (keys.l ? 1 : 0);
 const humansAlive = () => bikes.some(b => b.alive && !b.ai);
 
 // A rider's wall is a list of segment start cells; the ribbon in trails.js draws it
@@ -143,6 +152,7 @@ function buildRiders(roster){
       mesh, segs:[], pos:new THREE.Vector3(), vpos:new THREE.Vector3(), alive:false, cleared:true, nt:0, k:0, local:[], gq:[], sched:[], queue:[],
       cx:H, cz:H, dir:0, p:0, mul:1, energy:.35, grind:0, vyaw:0, lean:0, snapT:0, lastLocalK:-1, localT:0,
       hist:new Int16Array(HIST * 2), trim:0, deathT:0,
+      fr:null, wpts:null, wn:0, wtail:null, wtn:0, fq:null, sent:0, ex:0, ez:0, ip:null, in0:0,   // free steering
     });
   });
   bikes.forEach(b => { trails.add(b); fx.attachScan(b); });
@@ -152,6 +162,7 @@ function buildRiders(roster){
 function revive(b){ b.mesh.group.visible = b.alive; }
 
 function resetRound(){
+  if (isFree()) return freeReset();
   grid.fill(0);
   bikes.forEach(b => { b.segs = []; });
   const n = bikes.length, rad = Math.floor(N * .34), off = Math.random() * Math.PI * 2;
@@ -282,6 +293,13 @@ function crash(b){
 
 function fadeDead(b, dt){
   if (b.cleared) return;
+  if (isFree()) {
+    // Solo / host: the sim clears its own walls (freeUpdate mirrors it); guests follow the same clock
+    if (mode !== 'guest') return;
+    b.deathT += dt;
+    if (b.deathT > DEATH_WINDOW) { if (b.fr) FS.clearTrail(fw, b.fr); b.cleared = true; }
+    return;
+  }
   b.deathT += dt;
   if (b.deathT > DEATH_WINDOW) {
     b.segs = [];
@@ -292,11 +310,14 @@ function fadeDead(b, dt){
 
 /* ---------- Online: host side ---------- */
 function snapshot(){
+  // Free: each rider's packed sim state plus the last input of theirs the host has applied (ack)
+  if (isFree() && fw) return {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW, f:1, t:fw.tick,
+    b:bikes.map(b => { const a = FS.pack(b.fr); a.push(b.fq ? b.fq.ack : -1); return a; })};
   return {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW,
     b:bikes.map(b => [b.cx | 0, b.cz | 0, b.dir | 0, Math.round(b.p * 100), Math.round(b.mul * 100), b.alive ? 1 : 0,
       Math.round(b.energy * 100), b.grind > 0 ? 1 : 0, b.k | 0, b.nt | 0])};
 }
-function pushState(){ if (mode === 'host' && net) { snapAcc = 0; net.state(snapshot()); } }
+function pushState(){ if (mode === 'host' && net) { snapAcc = 0; if (isFree()) sendPoints(); net.state(snapshot()); } }
 
 /* A guest's turn names the step it was pressed on. If the host has already
    driven that bike a few cells past it, rewind the bike to that cell and
@@ -320,6 +341,7 @@ function remoteBoost(id, v){ const b = bikes[id]; if (mode === 'host' && b) b.wa
 function removeRider(id){
   const b = bikes[id]; if (!b || mode !== 'host') return;
   b.gone = true; b.remote = false;
+  if (isFree() && b.fr && fw) FS.kill(fw, b.fr);
   if (b.alive) crash(b);
 }
 
@@ -364,9 +386,10 @@ function applySnapshot(st){
   if (mode !== 'guest' || !st || st.m !== matchId || !Array.isArray(st.b)) return;
   if (Array.isArray(st.sc)) scores = st.sc;
   if (st.s === 'end') { matchOver(bikes[st.w] || null); return; }
-  if (st.r !== round) guestRound(st);
+  if (st.r !== round) (st.f ? freeGuestRound : guestRound)(st);
   const now = performance.now();
-  st.b.forEach((a, i) => {
+  if (st.f) freeSnapshot(st, now);
+  else st.b.forEach((a, i) => {
     const b = bikes[i]; if (!b) return;
     if (!a[5]) { if (b.alive) crash(b); return; }
     if (!b.alive) return;
@@ -413,6 +436,232 @@ function syncSegs(b){
   while (b.segs.length < pts.length) { const p = pts[b.segs.length]; startSegAt(b, p.x, p.z); }
 }
 
+/* ---------- Free steering ---------- */
+/* The race itself is js/sim/free.js: solo and host step one world at a fixed 1/60 s. Online the
+   host stays authoritative. Each guest tick produces one input (steer, boost, snap) with a sequence
+   number; the guest applies it to its own rider at once (prediction), keeps it in phist and sends
+   it in small batches. The host consumes one per tick in order (js/sim/link.js) and every snapshot
+   says which input it applied last (ack): the guest resets its rider to the host's state and
+   replays the inputs after the ack. Walls stream as appended points (fp); everyone else is drawn
+   INTERP ticks behind the newest snapshot, interpolated. */
+let fw = null;                                        // this round's world
+const FDT = FS.DT, INTERP = 6;                        // 6 ticks = 100 ms
+let fpSeq = 0, fpLog = {}, fsnaps = [], fclk = null;  // host: wall chunk counter. guest: chunks by round, snapshots, clock offset (ms)
+let pSeq = -1, pOut = '', pOutQ = 0, pOutT = 0;       // guest: newest input number, unsent batch (first number, age)
+const phist = new Array(256), tailBuf = new Float32Array(128);   // guest: {input, predicted x, z} per tick
+const yawOf = h => headingYaw(Math.cos(h), Math.sin(h));
+
+function freeReset(){
+  fw = FS.createWorld({seed:(Math.random() * 4294967296) >>> 0, cfg:{ai:DIFF[cfg.diff]}});
+  const sp = FS.spawnRing(fw, bikes.length);
+  bikes.forEach((b, i) => {
+    const s = sp[i], r = FS.addRider(fw, {ai:b.ai, x:s.x, z:s.z, h:s.h});
+    if (b.gone) { FS.kill(fw, r); FS.clearTrail(fw, r); }
+    Object.assign(b, {fr:r, segs:[], wpts:r.pts, wn:r.n, wtail:null, wtn:0, fq:inputQueue(), sent:0, ip:null, ex:0, ez:0,
+      mul:1, energy:r.energy, grind:0, queue:[], sched:[], local:[], gq:[], alive:!b.gone, deathT:0, cleared:b.gone,
+      wantBoost:false, k:0, nt:0, grace:0});
+    resetPose(b, yawOf(s.h));
+    revive(b);
+    if (!b.alive) return;
+    fx.startScan(b);
+    placeFree(b, 0);
+  });
+  keys.snapQ.length = 0;
+  spectT = 0; deadT = 0;
+}
+
+// Solo / host: this tick's inputs for the humans (the sim drives its own AI)
+function freeInputs(){
+  const inp = [];
+  for (const b of bikes) {
+    if (b.ai || !b.alive) continue;
+    if (b === player) inp[b.id] = {steer:steerKey(), boost:keys.boost, snap:keys.snapQ.shift() || 0};
+    else if (b.remote && b.fq) inp[b.id] = queueTake(b.fq);
+  }
+  return inp;
+}
+function freeUpdate(dt){
+  FS.advance(fw, dt, freeInputs);
+  for (const e of fw.events) {
+    const b = bikes[e.id]; if (!b) continue;
+    if (e.type === 'crash' && b.alive) { b.pos.set(e.x, 0, e.z); crash(b); }
+    else if (e.type === 'snap' && b === player && !b.ai) SFX.whoosh(e.dir);
+  }
+  fw.events.length = 0;
+  for (const b of bikes) {
+    const r = b.fr; if (!r) continue;
+    b.mul = r.mul; b.energy = r.energy; b.grind = r.grind; b.deathT = r.deathT; b.cleared = r.cleared;
+  }
+}
+
+// The craft's nose sits at the simulated head, pointing along the sim heading
+function placeFree(b, dt){
+  const r = b.fr; if (!r) return;
+  let x, z, h;
+  if (b.ip) ({x, z, h} = b.ip);   // guest: another rider, interpolated between snapshots
+  else {
+    const a = fw.acc / FDT, dh = FS.wrap(r.h - r.ph);
+    x = r.px + (r.x - r.px) * a + b.ex; z = r.pz + (r.z - r.pz) * a + b.ez;   // ex / ez: a guest's reconciliation error, easing out
+    h = Math.abs(dh) > .5 ? r.h : r.ph + dh * a;   // snap turns aren't interpolated: the pose eases them
+  }
+  b.pos.set(x, 0, z);
+  const c = Math.cos(h), sn = Math.sin(h), back = VC.vehicle.originBehindHead;
+  b.vpos.set(x - c * back, 0, z - sn * back);
+  const moving = state === 'run' || state === 'over' || state === 'demo';
+  b.powerT = Math.max(0, (b.powerT || 0) - dt);
+  b.visualSpeed = (moving ? BASE * b.mul / VC.vehicle.scale : 0) + VC.effects.powerOn.speed * (b.powerT / VC.effects.powerOn.duration);
+  b.particleScale = pipe.particleScale;
+  updatePoseFree(b, dt, b.vpos, headingYaw(c, sn), b.visualSpeed);
+  b.trim = back + b.mesh.tail;
+}
+
+// Feed trails.js / the minimap: the sim's polyline (guests: up to what the drawn head has reached)
+function freeWalls(b){
+  const r = b.fr; if (!r) return;
+  b.wpts = r.pts; b.wtail = null; b.wtn = 0;
+  b.wn = mode === 'guest' && b.ip && b.alive ? Math.min(r.n, b.in0) : r.n;
+  if (mode !== 'guest' || b !== player || !b.alive || pSeq < 0 || !r.n) return;
+  // Our own wall: host-confirmed points, then the predicted path from where they end
+  const lx = r.pts[2 * r.n - 2], lz = r.pts[2 * r.n - 1];
+  let from = -1, bd = 4;
+  for (let q = Math.max(0, pSeq - 60); q <= pSeq; q++) {
+    const H = phist[q & 255]; if (!H) continue;
+    const d = (H.x - lx) * (H.x - lx) + (H.z - lz) * (H.z - lz); if (d < bd) { bd = d; from = q; }
+  }
+  if (from < 0) return;
+  let m = 0;
+  for (let q = from + 1; q <= pSeq && m < 60; q++) { const H = phist[q & 255]; tailBuf[2 * m] = H.x; tailBuf[2 * m + 1] = H.z; m++; }
+  b.wtail = tailBuf; b.wtn = m;
+}
+
+/* Host: new wall points since the last snapshot, one chunk for everyone: {i<id>: [from, x*100, z*100, ...]} */
+function sendPoints(){
+  if (!fw || !net.points) return;
+  const out = {}; let any = false;
+  for (const b of bikes) {
+    const r = b.fr; if (!r || r.cleared || r.n <= b.sent) continue;
+    out['i' + b.id] = FS.packPoints(r, b.sent); b.sent = r.n; any = true;
+  }
+  if (any) net.points(round, fpSeq++, out);
+}
+function remoteInput(id, r, q, s){
+  const b = bikes[id];
+  if (mode !== 'host' || !b || !b.fq || r !== round || typeof s !== 'string') return;
+  queuePush(b.fq, q, s);
+}
+
+/* Guest */
+function freeChunk(v){
+  for (const k in v) {
+    const b = bikes[+k.slice(1)], a = v[k];
+    if (!b || !b.fr || !Array.isArray(a) || a.length < 3) continue;
+    const flat = new Array(a.length - 1);
+    for (let j = 1; j < a.length; j++) flat[j - 1] = a[j] / 100;
+    FS.setPoints(fw, b.fr, a[0], flat);
+  }
+}
+function addFreePoints(r, v){
+  if (mode !== 'guest' || !v) return;
+  (fpLog[r] || (fpLog[r] = [])).push(v);
+  if (r === round && fw) freeChunk(v);
+}
+function freeGuestRound(st){
+  round = st.r;
+  fw = FS.createWorld({cfg:{ai:DIFF[cfg.diff]}});
+  fsnaps = []; fclk = null; pSeq = -1; pOut = ''; pOutT = 0; keys.snapQ.length = 0;
+  st.b.forEach((a, i) => {
+    const b = bikes[i]; if (!b) return;
+    const r = FS.addRider(fw, {ghost:true, trail:false});
+    FS.unpack(r, a); r.px = r.x; r.pz = r.z; r.ph = r.h; r.alive = !!a[6]; r.cleared = !r.alive;
+    Object.assign(b, {fr:r, segs:[], wpts:r.pts, wn:0, wtail:null, wtn:0, ex:0, ez:0, ip:b === player ? null : {x:r.x, z:r.z, h:r.h}, in0:0,
+      mul:r.mul, energy:r.energy, grind:r.grind, alive:r.alive, deathT:0, cleared:!r.alive, snapT:0});
+    resetPose(b, yawOf(r.h));
+    revive(b);
+    if (!b.alive) return;
+    fx.startScan(b);
+    placeFree(b, 0);
+  });
+  for (const k in fpLog) if (+k < round) delete fpLog[k];
+  (fpLog[round] || []).forEach(freeChunk);
+  state = 'countdown'; cd = st.cd; lastCd = 4; spectT = 0; deadT = 0;
+  SFX.riser(Math.max(.6, st.cd));
+  rig.intro(player);
+  updateBoard();
+}
+function freeSnapshot(st, now){
+  // Host tick -> local clock: the smallest offset seen (least delayed snapshot), drifting slowly
+  if (st.t > 0) { const off = now - st.t * 1000 / 60; fclk = fclk === null || off < fclk ? off : fclk + (off - fclk) * .02; }
+  fsnaps.push(st); if (fsnaps.length > 16) fsnaps.shift();
+  st.b.forEach((a, i) => {
+    const b = bikes[i]; if (!b || !b.fr) return;
+    const r = b.fr;
+    if (!a[6]) { if (b.alive) { FS.kill(fw, r); crash(b); } return; }
+    if (!b.alive) return;
+    if (b === player) { reconcile(b, a); return; }
+    FS.unpack(r, a);   // newest known head: other riders' wall tips for our own collision checks
+    b.mul = r.mul; b.energy = r.energy; b.grind = r.grind;
+  });
+}
+// One predicted tick of our own rider. Walls the guest knows about hold it in place (the host decides crashes)
+function predictTick(r, inp){
+  if (r.held) return 0;
+  const x0 = r.x, z0 = r.z, snapped = FS.drive(fw, r, inp);
+  if (FS.collides(fw, r, x0, z0, r.x, r.z)) { r.x = x0; r.z = z0; r.held = true; }
+  return snapped;
+}
+// Host state at the ack, then our inputs since; the visible jump eases out through ex / ez
+function reconcile(b, a){
+  const r = b.fr, ack = a[12], x0 = r.x, z0 = r.z, h0 = r.h;
+  FS.unpack(r, a); r.held = false;
+  for (let q = Math.max(ack + 1, pSeq - 255); q <= pSeq; q++) {
+    const H = phist[q & 255]; if (!H) continue;
+    predictTick(r, H.i); H.x = r.x; H.z = r.z;
+  }
+  b.ex += x0 - r.x; b.ez += z0 - r.z;
+  if (b.ex * b.ex + b.ez * b.ez > 25) b.ex = b.ez = 0;
+  r.px += r.x - x0; r.pz += r.z - z0; r.ph += r.h - h0;
+  b.mul = r.mul; b.energy = r.energy; b.grind = r.grind;
+}
+function freeGuestFrame(dt){
+  if (!fw || !player) return;
+  const r = player.fr;
+  if (r && player.alive && (state === 'run' || state === 'over')) {
+    fw.acc = Math.min(fw.acc + dt, FDT * 8);
+    while (fw.acc >= FDT) {
+      fw.acc -= FDT;
+      const inp = {steer:steerKey(), boost:keys.boost, snap:keys.snapQ.shift() || 0}, q = ++pSeq;
+      r.px = r.x; r.pz = r.z; r.ph = r.h;
+      const snapped = predictTick(r, inp);
+      if (snapped) SFX.whoosh(snapped);
+      phist[q & 255] = {i:inp, x:r.x, z:r.z};
+      if (!pOut) pOutQ = q;
+      pOut += encodeIn(inp.steer, inp.boost, inp.snap);
+      if (inp.snap) pOutT = 1;   // send snap turns right away
+    }
+    pOutT += dt;
+    if (pOut && pOutT >= .05) { net.input(round, pOutQ, pOut); pOut = ''; pOutT = 0; }
+    player.mul = r.mul; player.energy = r.energy; player.grind = r.grind;
+  }
+  const k = Math.exp(-dt * 8); player.ex *= k; player.ez *= k;
+  const tick = fclk === null ? -1 : (performance.now() - fclk) * 60 / 1000 - INTERP;
+  for (const b of bikes) if (b !== player && b.alive && b.ip) interp(b, tick);
+}
+// Another rider, drawn at host tick `tick`: between the two snapshots around it, or a short extrapolation
+function interp(b, tick){
+  const i = b.id, ip = b.ip; let s0 = null, s1 = null;
+  for (const s of fsnaps) { if (s.t <= tick) s0 = s; else { s1 = s; break; } }
+  if (s0 && s1) {
+    const a = s0.b[i], c = s1.b[i], k = (tick - s0.t) / Math.max(1, s1.t - s0.t), dh = FS.wrap((c[2] - a[2]) / 1e4);
+    ip.x = (a[0] + (c[0] - a[0]) * k) / 100; ip.z = (a[1] + (c[1] - a[1]) * k) / 100;
+    ip.h = Math.abs(dh) > .5 ? (k < .5 ? a[2] : c[2]) / 1e4 : a[2] / 1e4 + dh * k;
+    b.in0 = a[11];
+  } else {
+    const s = s0 || s1; if (!s) return;
+    const a = s.b[i], e = s0 ? Math.min(Math.max(0, tick - s.t), 15) / 60 : 0;
+    ip.x = (a[0] + a[3] * e) / 100; ip.z = (a[1] + a[4] * e) / 100; ip.h = a[2] / 1e4; b.in0 = a[11];
+  }
+}
+
 /* ---------- Crash particles ---------- */
 /* ---------- HUD ---------- */
 function setMsg(m, s){ $('msg').textContent = m || ''; $('sub').textContent = s || ''; msgT = 0; }
@@ -440,6 +689,17 @@ function drawRadar(){
   rctx.clearRect(0, 0, W, W);
   rctx.lineCap = rctx.lineJoin = 'round';
   bikes.forEach(b => {
+    if (b.wpts) {
+      // Free steering: the dense polyline
+      if (b.cleared || !b.wn) return;
+      const P = b.wpts;
+      rctx.globalAlpha = b.alive ? .8 : .3; rctx.strokeStyle = b.r.css; rctx.lineWidth = 2;
+      rctx.beginPath();
+      for (let i = 0; i < b.wn; i++) { const x = (P[2 * i] + H) * S, y = (P[2 * i + 1] + H) * S; if (i) rctx.lineTo(x, y); else rctx.moveTo(x, y); }
+      if (b.alive) rctx.lineTo((b.pos.x + H) * S, (b.pos.z + H) * S);
+      rctx.stroke();
+      return;
+    }
     if (b.cleared || !b.segs.length) return;
     rctx.globalAlpha = b.alive ? .8 : .3; rctx.strokeStyle = b.r.css; rctx.lineWidth = 2;
     rctx.beginPath();
@@ -493,7 +753,7 @@ function powerOn(){ bikes.forEach(b => { b.powerT = VC.effects.powerOn.duration;
 
 /* ---------- Flow ---------- */
 function startDemo(){
-  mode = 'solo'; net = null; me = 0; paused = false; $('pausebox').hidden = true;
+  mode = 'solo'; net = null; me = 0; paused = false; $('pausebox').hidden = true; cfg.steer = 'free';
   state = 'demo'; buildRiders(RIDERS.slice(0, 4).map((r, i) => ({name:r.name, bot:true, color:VC.riders[i].key}))); resetRound(); demoT = 0;
   $('hud').hidden = true; $('touch').hidden = true; $('menu').hidden = false;
 }
@@ -502,18 +762,21 @@ function begin(){
   document.documentElement.style.setProperty('--accent', player.r.css);   // your colour is the only UI accent
   $('winLabel').textContent = `First to ${cfg.win} rounds`;
   $('menu').hidden = true; $('hud').hidden = false; $('touch').hidden = !coarse;
-  keys.boost = false; sentBoost = false; lastW = -1; snapAcc = 0;
+  keys.boost = keys.l = keys.r = false; keys.snapQ.length = 0; sentBoost = false; lastW = -1; snapAcc = 0;
+  $('tL').setAttribute('aria-label', isFree() ? 'Steer left' : 'Turn left');
+  $('tR').setAttribute('aria-label', isFree() ? 'Steer right' : 'Turn right');
   if (mode === 'guest') { state = 'wait'; setMsg('SYNCING', 'linking to the host grid'); }
   else nextRound();
 }
 function startSolo(o){
-  SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win};
+  SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win, steer:o.steer === 'grid' ? 'grid' : 'free'};
   buildRiders([{name:o.name || 'YOU', color:o.color}, ...RIDERS.slice(1, 1 + o.bots).map(r => ({name:r.name, bot:true}))]);
   begin();
 }
 function startOnline(o){
   SFX.init(); mode = o.role; net = o.net; me = o.me; matchId = o.id; turnLog = {};
-  cfg = {diff:o.diff, win:o.win};
+  fpLog = {}; fpSeq = 0;
+  cfg = {diff:o.diff, win:o.win, steer:o.steer === 'free' ? 'free' : 'grid'};   // rooms from before free steering race on the grid
   buildRiders(o.roster.map((p, i) => ({name:p.name, bot:p.bot, color:p.color, remote:o.role === 'host' && !p.bot && i !== o.me})));
   begin();
 }
@@ -558,7 +821,7 @@ function togglePause(force){
   paused = open && mode === 'solo';
   $('pauseTitle').textContent = mode === 'solo' ? 'PAUSED' : 'MENU';
   $('pauseHint').textContent = mode === 'solo' ? 'Press P or tap Resume' : 'The race keeps running while this is open';
-  if (open) keys.boost = false;
+  if (open) keys.boost = keys.l = keys.r = false;
 }
 function quit(){
   const wasOnline = mode !== 'solo';
@@ -569,6 +832,7 @@ function cycleCam(){ camMode = (camMode + 1) % 3; $('camLabel').textContent = CA
 function queueTurn(t){
   if (paused || !player || !player.alive || player.ai) return;
   if (!['countdown', 'run'].includes(state)) return;
+  if (isFree()) { if (keys.snapQ.length < 2) keys.snapQ.push(t); return; }   // free: a snap turn on the next tick
   if (mode === 'guest') {
     if (state === 'countdown') { net.turn(t, -1, round); return; }
     if (player.k === player.lastLocalK) { if (player.gq.length < 2) { player.gq.push(t); player.localT = performance.now(); } }
@@ -588,14 +852,19 @@ addEventListener('keydown', e => {
   if (k === 'KeyM' && !e.repeat) { SFX.toggle(); return; }
   if (!playing()) return;
   if (e.repeat && k !== 'Space' && k !== 'KeyW' && k !== 'ArrowUp') return;
-  if (k === 'ArrowLeft' || k === 'KeyA') queueTurn(-1);
-  else if (k === 'ArrowRight' || k === 'KeyD') queueTurn(1);
+  // Free steering: hold to steer, Shift + arrow snaps 90 degrees. Grid: every press turns
+  if (k === 'ArrowLeft' || k === 'KeyA') { if (isFree() && !e.shiftKey) keys.l = true; else queueTurn(-1); }
+  else if (k === 'ArrowRight' || k === 'KeyD') { if (isFree() && !e.shiftKey) keys.r = true; else queueTurn(1); }
   else if (k === 'Space' || k === 'KeyW' || k === 'ArrowUp') { keys.boost = true; if (!e.repeat) trySkip(); }
   else if (k === 'KeyC') cycleCam();
   else if (k === 'KeyP' || k === 'Escape') togglePause();
 });
-addEventListener('keyup', e => { if (['Space','KeyW','ArrowUp'].includes(e.code)) keys.boost = false; });
-addEventListener('blur', () => { keys.boost = false; if (state === 'run' && mode === 'solo') togglePause(true); });
+addEventListener('keyup', e => {
+  if (['Space','KeyW','ArrowUp'].includes(e.code)) keys.boost = false;
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.l = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.r = false;
+});
+addEventListener('blur', () => { keys.boost = keys.l = keys.r = false; if (state === 'run' && mode === 'solo') togglePause(true); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'run' && mode === 'solo') togglePause(true); });
 $('resumeBtn').addEventListener('click', () => togglePause(false));
 $('quitBtn').addEventListener('click', quit);
@@ -606,12 +875,14 @@ const hold = (el, down, up) => {
   if (up) ['pointerup','pointercancel','lostpointercapture'].forEach(t => el.addEventListener(t, up));
   el.addEventListener('contextmenu', e => e.preventDefault());
 };
-hold($('tL'), () => { queueTurn(-1); trySkip(); });
-hold($('tR'), () => { queueTurn(1); trySkip(); });
+// ◀ ▶ turn 90 degrees per press on the grid, and steer while held in free mode
+const steerBtn = (t, on) => { if (isFree()) keys[t < 0 ? 'l' : 'r'] = on; else if (on) queueTurn(t); };
+hold($('tL'), () => { steerBtn(-1, true); trySkip(); }, () => steerBtn(-1, false));
+hold($('tR'), () => { steerBtn(1, true); trySkip(); }, () => steerBtn(1, false));
 hold($('tB'), () => { keys.boost = true; trySkip(); }, () => keys.boost = false);
 document.querySelectorAll('[data-mute]').forEach(el => el.addEventListener('click', () => { SFX.init(); SFX.toggle(); }));
 $('camBtn').addEventListener('click', cycleCam);
-// Swipe left / right anywhere on the arena to turn; a plain tap skips while spectating
+// Swipe left / right anywhere on the arena to turn (free mode: snap turn); a plain tap skips while spectating
 let swipe = null;
 const cv = renderer.domElement;
 cv.addEventListener('pointerdown', e => { swipe = {x:e.clientX, y:e.clientY, done:false}; });
@@ -660,21 +931,29 @@ function frame(now){
   if (state === 'countdown') {
     cd -= dt;
     const s = Math.ceil(cd);
-    if (cd > 0) setMsg(String(s), `Round ${round} · ${coarse ? 'buttons or swipe' : 'arrows or A / D to turn'}`);
+    const how = isFree() ? (coarse ? 'hold ◀ ▶ to steer · swipe to snap' : 'hold arrows to steer · Shift snaps 90°') : (coarse ? 'buttons or swipe' : 'arrows or A / D to turn');
+    if (cd > 0) setMsg(String(s), `Round ${round} · ${how}`);
     else if (mode !== 'guest') { state = 'run'; flash('GO', '', .6); SFX.hit('go'); powerOn(); pushState(); }
     else setMsg('GO', '');
     if (cd > 0 && Math.ceil(cd) !== lastCd) { lastCd = Math.ceil(cd); SFX.hit('tick'); }
   }
   if (mode === 'guest') {
-    const want = keys.boost && player.alive && state === 'run';
-    if (want !== sentBoost) { sentBoost = want; net.boost(want); }
-    bikes.forEach(b => { glide(b, dt); if (b.alive) syncSegs(b); });
+    if (isFree()) freeGuestFrame(dt);
+    else {
+      const want = keys.boost && player.alive && state === 'run';
+      if (want !== sentBoost) { sentBoost = want; net.boost(want); }
+      bikes.forEach(b => { glide(b, dt); if (b.alive) syncSegs(b); });
+    }
   } else if (state === 'run' || state === 'over' || state === 'demo') {
-    if (state !== 'demo') player.wantBoost = keys.boost && player.alive;
-    bikes.forEach(b => update(b, dt));
+    if (isFree()) freeUpdate(dt);
+    else {
+      if (state !== 'demo') player.wantBoost = keys.boost && player.alive;
+      bikes.forEach(b => update(b, dt));
+    }
   }
-  bikes.forEach(b => b.alive ? placeBike(b, vdt) : fadeDead(b, dt));
+  bikes.forEach(b => b.alive ? (isFree() ? placeFree(b, vdt) : placeBike(b, vdt)) : fadeDead(b, dt));
   trails.tick(vdt);
+  if (isFree()) bikes.forEach(freeWalls);
   bikes.forEach(b => trails.update(b, wx, b.alive ? b.trim : 0, DEATH_WINDOW));
   if (mode !== 'guest') {
     if (state === 'run') {
@@ -715,12 +994,14 @@ requestAnimationFrame(frame);
 
 export const Game = {
   hooks, startSolo, startOnline, toDemo:() => { setMsg('', ''); startDemo(); },
-  remoteTurn, remoteBoost, removeRider, applySnapshot, addTurnPoint,
+  remoteTurn, remoteBoost, removeRider, applySnapshot, addTurnPoint, remoteInput, addFreePoints,
   initAudio:() => SFX.init(),
   showcase, colourOf,
   setQuality:q => { const l = pipe.setQuality(q); try { localStorage.setItem('pr-quality', l); } catch (e) {} return l; },
   get quality(){ return pipe.quality; },
-  debug:() => ({state, round, mode, me, scores:scores.slice(), bikes:bikes.map(b => ({name:b.name, cx:b.cx, cz:b.cz, dir:b.dir, k:b.k, nt:b.nt, alive:b.alive, segs:b.segs.length}))}),
+  debug:() => ({state, round, mode, me, steer:cfg.steer, scores:scores.slice(), bikes:bikes.map(b => ({name:b.name, cx:b.cx, cz:b.cz, dir:b.dir, k:b.k, nt:b.nt, alive:b.alive, segs:b.segs.length,
+    ...(b.fr ? {x:+b.pos.x.toFixed(2), z:+b.pos.z.toFixed(2), h:+FS.wrap(b.fr.h).toFixed(3), n:b.fr.n, sx:+b.fr.x.toFixed(2), sz:+b.fr.z.toFixed(2)} : {})})),
+    ...(fw ? {tick:fw.tick, pSeq, wallSegs:fw.S.ax.length} : {})}),
   get state(){ return state; },
   get mode(){ return mode; }
 };

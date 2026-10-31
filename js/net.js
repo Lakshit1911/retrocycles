@@ -2,12 +2,14 @@
    rooms/{CODE}
      host     uid of the host (only the host can write anything but its own seat)
      status   'lobby' | 'playing'
-     cfg      {bots, diff, win}           host's lobby settings
+     cfg      {bots, diff, win, steer}    host's lobby settings (steer: 'free' | 'grid')
      players  {uid: {name, t, color}}     each rider writes only its own seat (color = garage pick)
-     start    {id, roster, diff, win}     the match the host just launched
+     start    {id, roster, diff, win, steer}  the match the host just launched
      st       latest host snapshot        ~15 per second while racing
-     tl       {r_id_n: [x, z]}            turn points, append-only per match
-     in/{uid} {b: boost, t: {push: {t, at, r}}}  a guest's inputs to the host */
+     tl       {r_id_n: [x, z]}            grid: turn points, append-only per match
+     fp       {r_seq: {i<id>: [from, x, z, ...]}}  free: new wall points (x100), one chunk per snapshot
+     in/{uid} {b: boost, t: {push: {t, at, r}}}  a guest's grid inputs to the host
+              {f: {push: {r, q, s}}}      free: per-tick input chars from sequence number q (js/sim/link.js) */
 import { db, ref, child, get, set, update, remove, push, onValue, onChildAdded, onDisconnect, serverTimestamp } from './firebase.js';
 
 export const MAX = 6;
@@ -66,18 +68,22 @@ export class Room {
 
   /* ---- host ---- */
   async begin(start){
-    await Promise.all([remove(this.path('st')), remove(this.path('tl')), remove(this.path('in'))]);
+    await Promise.all(['st', 'tl', 'fp', 'in'].map(p => remove(this.path(p))));
     await update(this.ref, {start, status:'playing'});
   }
   sendState(st){ set(this.path('st'), st).catch(() => {}); }
   logTurn(r, id, n, x, z){ set(this.path(`tl/${r}_${id}_${n}`), [x, z]).catch(() => {}); }
-  listenInputs(roster, onTurn, onBoost){
+  logPoints(r, seq, pts){ set(this.path(`fp/${r}_${String(seq).padStart(6, '0')}`), pts).catch(() => {}); }
+  listenInputs(roster, onTurn, onBoost, onInput){
     roster.forEach((p, i) => {
       if (p.bot || p.uid === this.uid) return;
       this.offMatch.push(onChildAdded(this.path(`in/${p.uid}/t`), s => {
         const v = s.val(); if (v) onTurn(i, v.t > 0 ? 1 : -1, v.at | 0, v.r | 0);
       }));
       this.offMatch.push(onValue(this.path(`in/${p.uid}/b`), s => onBoost(i, !!s.val())));
+      if (onInput) this.offMatch.push(onChildAdded(this.path(`in/${p.uid}/f`), s => {
+        const v = s.val(); if (v && typeof v.s === 'string') onInput(i, v.r | 0, v.q | 0, v.s);
+      }));
     });
   }
   endMatch(){ if (this.isHost) return update(this.ref, {status:'lobby'}).catch(() => {}); }
@@ -85,12 +91,14 @@ export class Room {
   /* ---- guest ---- */
   sendTurn(t, at, r){ push(this.path(`in/${this.uid}/t`), {t, at, r}).catch(() => {}); }
   sendBoost(b){ set(this.path(`in/${this.uid}/b`), b).catch(() => {}); }
-  listenMatch(onState, onTurnPoint){
+  sendInputs(r, q, s){ push(this.path(`in/${this.uid}/f`), {r, q, s}).catch(() => {}); }
+  listenMatch(onState, onTurnPoint, onPoints){
     this.offMatch.push(onValue(this.path('st'), s => onState(s.val())));
     this.offMatch.push(onChildAdded(this.path('tl'), s => {
       const [r, id, n] = s.key.split('_').map(Number), v = s.val();
       if (Array.isArray(v)) onTurnPoint(r, id, n, v[0], v[1]);
     }));
+    if (onPoints) this.offMatch.push(onChildAdded(this.path('fp'), s => onPoints(+s.key.split('_')[0], s.val())));
   }
 
   stopMatch(){ this.offMatch.forEach(f => f()); this.offMatch = []; }
