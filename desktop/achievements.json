@@ -1,0 +1,159 @@
+{
+  "_comment": "Phantom Run Steam achievements. Create each one on the Steamworks partner site (Edit Steamworks Settings > Stats & Achievements > Achievements) with exactly this API name, then publish. Unlock rules live in js/platform.js (ACHIEVEMENTS) and run on the client from local progress counters; keep both files in sync (npm test in desktop/ checks it). Icons: 256x256 JPG, one for achieved and one greyed out for unachieved.",
+  "achievements": [
+    {
+      "apiName": "ACH_FIRST_ROUND",
+      "displayName": {
+        "english": "First Light"
+      },
+      "description": {
+        "english": "Win a round."
+      },
+      "hidden": false,
+      "event": "round-win",
+      "unlockRule": "roundWins >= 1",
+      "icon": "icons/ach_first_round.jpg",
+      "iconGray": "icons/ach_first_round_gray.jpg"
+    },
+    {
+      "apiName": "ACH_FIRST_WIN",
+      "displayName": {
+        "english": "Own the Grid"
+      },
+      "description": {
+        "english": "Win a match, solo or online."
+      },
+      "hidden": false,
+      "event": "match-end (won)",
+      "unlockRule": "wins >= 1",
+      "icon": "icons/ach_first_win.jpg",
+      "iconGray": "icons/ach_first_win_gray.jpg"
+    },
+    {
+      "apiName": "ACH_FIRST_ONLINE_WIN",
+      "displayName": {
+        "english": "Phantom Among Friends"
+      },
+      "description": {
+        "english": "Win an online match."
+      },
+      "hidden": false,
+      "event": "match-end (won, online)",
+      "unlockRule": "onlineWins >= 1",
+      "icon": "icons/ach_first_online_win.jpg",
+      "iconGray": "icons/ach_first_online_win_gray.jpg"
+    },
+    {
+      "apiName": "ACH_FLAWLESS",
+      "displayName": {
+        "english": "Untouchable"
+      },
+      "description": {
+        "english": "Win a match without dropping a single round."
+      },
+      "hidden": false,
+      "event": "match-end (won, roundsWon == rounds)",
+      "unlockRule": "flawlessWins >= 1",
+      "icon": "icons/ach_flawless.jpg",
+      "iconGray": "icons/ach_flawless_gray.jpg"
+    },
+    {
+      "apiName": "ACH_LEGEND_WIN",
+      "displayName": {
+        "english": "Machine Breaker"
+      },
+      "description": {
+        "english": "Win a solo match against Legend rivals."
+      },
+      "hidden": false,
+      "event": "match-end (won, solo, diff legend)",
+      "unlockRule": "legendWins >= 1",
+      "icon": "icons/ach_legend_win.jpg",
+      "iconGray": "icons/ach_legend_win_gray.jpg"
+    },
+    {
+      "apiName": "ACH_WINS_10",
+      "displayName": {
+        "english": "Grid Regular"
+      },
+      "description": {
+        "english": "Win 10 matches."
+      },
+      "hidden": false,
+      "event": "match-end (won)",
+      "unlockRule": "wins >= 10",
+      "icon": "icons/ach_wins_10.jpg",
+      "iconGray": "icons/ach_wins_10_gray.jpg"
+    },
+    {
+      "apiName": "ACH_WINS_50",
+      "displayName": {
+        "english": "Night Circuit Legend"
+      },
+      "description": {
+        "english": "Win 50 matches."
+      },
+      "hidden": false,
+      "event": "match-end (won)",
+      "unlockRule": "wins >= 50",
+      "icon": "icons/ach_wins_50.jpg",
+      "iconGray": "icons/ach_wins_50_gray.jpg"
+    },
+    {
+      "apiName": "ACH_MATCHES_25",
+      "displayName": {
+        "english": "Marathon Rider"
+      },
+      "description": {
+        "english": "Finish 25 matches."
+      },
+      "hidden": false,
+      "event": "match-end",
+      "unlockRule": "matches >= 25",
+      "icon": "icons/ach_matches_25.jpg",
+      "iconGray": "icons/ach_matches_25_gray.jpg"
+    },
+    {
+      "apiName": "ACH_FIRST_GRID",
+      "displayName": {
+        "english": "Plugged In"
+      },
+      "description": {
+        "english": "Host or join an online grid."
+      },
+      "hidden": false,
+      "event": "join-room",
+      "unlockRule": "grids >= 1",
+      "icon": "icons/ach_first_grid.jpg",
+      "iconGray": "icons/ach_first_grid_gray.jpg"
+    },
+    {
+      "apiName": "ACH_FIRST_CRASH",
+      "displayName": {
+        "english": "Every Wall Is a Lesson"
+      },
+      "description": {
+        "english": "Hit a wall for the first time."
+      },
+      "hidden": true,
+      "event": "crash",
+      "unlockRule": "crashes >= 1",
+      "icon": "icons/ach_first_crash.jpg",
+      "iconGray": "icons/ach_first_crash_gray.jpg"
+    },
+    {
+      "apiName": "ACH_BOOST_100",
+      "displayName": {
+        "english": "Afterburner"
+      },
+      "description": {
+        "english": "Boost 100 times."
+      },
+      "hidden": false,
+      "event": "boost",
+      "unlockRule": "boosts >= 100",
+      "icon": "icons/ach_boost_100.jpg",
+      "iconGray": "icons/ach_boost_100_gray.jpg"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+// SteamPipe app build script for Phantom Run.
+// Copy to app_build_<your app id>.vdf, replace every <...> placeholder, then:
+//   steamcmd +login <builder account> +run_app_build "<absolute path>/app_build_<appid>.vdf" +quit
+// Paths are relative to this file. Build the unpacked folders first:
+//   npm run dist:win    -> dist/win-unpacked/
+//   npm run dist:mac    -> dist/mac-universal/Phantom Run.app
+//   npm run dist:linux  -> dist/linux-unpacked/
+// Remove any depot line whose OS you are not shipping yet.
+"AppBuild"
+{
+	"AppID"		"<APP_ID>"
+	"Desc"		"Phantom Run <VERSION>"
+	"ContentRoot"	"../dist/"
+	"BuildOutput"	"../dist/steampipe-output/"
+	"Preview"	"0"	// "1" = dry run: lists what would upload, uploads nothing
+	"SetLive"	""	// e.g. "beta" to push straight to a beta branch; never "default" from a script
+	"Depots"
+	{
+		"<DEPOT_ID_WINDOWS>"	"depot_build_DEPOTID_WINDOWS.vdf"
+		"<DEPOT_ID_MACOS>"	"depot_build_DEPOTID_MACOS.vdf"
+		"<DEPOT_ID_LINUX>"	"depot_build_DEPOTID_LINUX.vdf"
+	}
+}
