@@ -396,6 +396,8 @@ kbd{font-family:var(--mono);font-size:10.5px;color:var(--ink);border:1px solid v
   #radar{width:72px;height:72px}
   #spd{font-size:30px}
   .gauge{width:min(240px,40vw);gap:6px}
+  .bottom .gauge{grid-column:3;justify-self:end}   /* short screens: off to the right, clear of your craft */
+  .bottom .hints{display:none}
   /* garage: heading left, panel right, the craft turning between them */
   .garage-screen{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,380px);align-items:start;gap:14px 24px;min-height:0}
   .garage-screen .garage-panel{margin-top:0;padding:14px;gap:10px}
