@@ -14,6 +14,7 @@ export const ACTIONS = [
   {id:'snapRight', label:'Snap right',  hint:'90° turn'},
   {id:'boost',     label:'Boost',       hint:'hold'},
   {id:'burst',     label:'Burst',       hint:'Circuit mode'},
+  {id:'brake',     label:'Brake',       hint:'Circuit mode'},
   {id:'camera',    label:'Camera',      hint:'chase / cockpit / overview'},
   {id:'pause',     label:'Menu / pause', hint:''},
   {id:'mute',      label:'Sound on / off', hint:''}
@@ -24,13 +25,14 @@ export const DEFAULTS = Object.freeze({
   snapLeft:  ['Shift+ArrowLeft', 'Shift+KeyA'],
   snapRight: ['Shift+ArrowRight', 'Shift+KeyD'],
   boost:     ['Space', 'KeyW', 'ArrowUp'],
-  burst:     ['KeyE'],
+  burst:     ['KeyE', 'ShiftLeft', 'ShiftRight'],
+  brake:     ['ArrowDown', 'KeyS'],
   camera:    ['KeyC'],
   pause:     ['KeyP', 'Escape'],
   mute:      ['KeyM']
 });
 // Actions that are held (released on keyup); the rest fire once per press
-export const HELD = new Set(['left', 'right', 'boost', 'burst']);
+export const HELD = new Set(['left', 'right', 'boost', 'burst', 'brake']);
 const MODIFIERS = new Set(['ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']);
 const VALID = /^(Shift\+)?[A-Za-z][A-Za-z0-9]{0,31}$/;
 

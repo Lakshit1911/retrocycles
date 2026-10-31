@@ -8,7 +8,19 @@
      grid  - the original cell-by-cell race with 90 degree turns (everything below marked grid)
      free  - continuous steering run by js/sim/free.js (fixed 1/60 s steps); online, guests send
              per-tick inputs, predict their own rider and reconcile against host snapshots,
-             and see everyone else interpolated ~100 ms behind (the "Free steering" section) */
+             and see everyone else interpolated ~100 ms behind (the "Free steering" section)
+   Two events (cfg.event):
+     arena    the above: last rider standing, rounds to win
+     circuit  laps of a track (always free steering): light walls only while a rider holds
+              Light Burst, a smash respawns you at your last checkpoint, pickups on the road
+              (the "Circuit" section; the race itself is js/sim/free.js with a track)
+
+   Input state lives in `keys` (exported as Game.keys so other input modules can drive it):
+     keys.l / keys.r   steer left / right held (free) - grid uses queueTurn via keyboard / buttons
+     keys.boost        boost held
+     keys.snapQ        snap turns waiting for a tick (push -1 / 1; arena free steering only)
+     keys.burst        Light Burst held (circuit)
+     keys.brake        brake held (circuit) */
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
 import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, updatePoseFree, headingYaw } from './visuals/riders.js';
 import { createPipeline, lin, linHex, defaultQuality } from './visuals/renderer.js';
@@ -18,7 +30,9 @@ import { createArena } from './visuals/arena.js';
 import { createTrails } from './visuals/trails.js';
 import { createEffects } from './visuals/effects.js';
 import { createCameraRig, CAMS } from './visuals/camera.js';
+import { createTrackView } from './visuals/track.js';
 import * as FS from './sim/free.js';
+import { trackOf, DEFAULT_TRACK } from './sim/tracks/index.js';
 import { encodeIn, inputQueue, queuePush, queueTake } from './sim/link.js';
 import { actionOf, releasedBy } from './input/bindings.js';   // remappable keys (Controls screen)
 import { pollGamepad } from './input/gamepad.js';            // game controllers, polled in frame()
@@ -44,8 +58,9 @@ addEventListener('touchstart', () => {
 }, {once:true, passive:true});
 
 export const hooks = {end:null, quit:null, quality:null};
-let cfg = {diff:'rider', win:5, steer:'free'};
-const isFree = () => cfg.steer === 'free';
+let cfg = {diff:'rider', win:5, steer:'free', event:'arena', laps:3, track:DEFAULT_TRACK};
+const isCircuit = () => cfg.event === 'circuit';
+const isFree = () => cfg.steer === 'free' || isCircuit();
 let mode = 'solo', net = null, matchId = '', me = 0, lastW = -1, snapAcc = 0, sentBoost = false;
 let turnLog = {};
 
@@ -66,6 +81,8 @@ const trails = createTrails(scene);
 // Heat, crash shards, boost streaks, spawn scan (js/visuals/effects.js) and the camera rig (js/visuals/camera.js)
 const fx = createEffects(scene, camera, reduceMotion);
 const rig = createCameraRig(camera, reduceMotion);
+// Circuit road, barriers, gates, pickups (js/visuals/track.js)
+const trackView = createTrackView(scene);
 renderer.localClippingEnabled = true;   // spawn scan clips each craft above a rising plane
 let slowT = 0, wasBoosting = 0;                           // visual-only slow motion after the local rider's own crash
 
@@ -110,7 +127,7 @@ const headingOf = d => headingYaw(DIRS[d][0], DIRS[d][1]);
 let bikes = [], player = null, scores = [], round = 0;
 let state = 'demo', cd = 0, overT = 0, spectT = 0, deadT = 0, demoT = 0, paused = false, msgT = 0;
 let camMode = 0, lastCd = 4;
-const keys = {boost:false, l:false, r:false, snapQ:[]};   // l / r: free-mode steering held; snapQ: snap turns waiting for a tick
+const keys = {boost:false, l:false, r:false, snapQ:[], burst:false, brake:false};   // see the header comment
 const steerKey = () => (keys.r ? 1 : 0) - (keys.l ? 1 : 0);
 const humansAlive = () => bikes.some(b => b.alive && !b.ai);
 
@@ -156,8 +173,10 @@ function buildRiders(roster){
       cx:H, cz:H, dir:0, p:0, mul:1, energy:.35, grind:0, vyaw:0, lean:0, snapT:0, lastLocalK:-1, localT:0,
       hist:new Int16Array(HIST * 2), trim:0, deathT:0,
       fr:null, wpts:null, wn:0, wtail:null, wtn:0, fq:null, sent:0, ex:0, ez:0, ip:null, in0:0,   // free steering
+      wlist:null,                                                                                  // circuit burst walls
     });
   });
+  trackView.clearShells();
   bikes.forEach(b => { trails.add(b); fx.attachScan(b); });
   player = bikes[me] || bikes[0]; scores = bikes.map(() => 0); round = 0;
 }
@@ -274,7 +293,7 @@ function think(b){
   else if (b.wantBoost && (ahead < 9 || b.energy < .08)) b.wantBoost = false;
 }
 
-function crash(b){
+function crash(b, by){
   b.alive = false; b.grace = 0; b.mesh.group.visible = false;
   b.trim = 0;   // show the wall right up to the crash point
   fx.crash(b.vpos.x, b.vpos.z, b.r.color, pipe.particleScale);
@@ -282,7 +301,14 @@ function crash(b){
     const dist = player.alive ? player.pos.distanceTo(b.pos) : 20;
     SFX.boom(b === player ? 1 : Math.max(.12, .6 - dist / 120));
   }
-  if (b === player && state === 'run') {
+  if (b === player && state === 'run' && isCircuit()) {
+    // Circuit: a smash costs time, not the race; back at the checkpoint in a moment
+    emit('crash');
+    rig.impact(VC.camera.shake.crash);
+    if (!reduceMotion) slowT = VC.effects.slowMotion.duration;
+    const o = by >= 0 && by !== b.id ? bikes[by] : null;
+    flash('SMASHED', o ? `${o.name}'s light wall` : by === b.id ? 'your own light wall' : 'back to the last checkpoint', 1.1);
+  } else if (b === player && state === 'run') {
     emit('crash');
     rig.impact(VC.camera.shake.crash);
     if (!reduceMotion) slowT = VC.effects.slowMotion.duration;
@@ -296,7 +322,7 @@ function crash(b){
 }
 
 function fadeDead(b, dt){
-  if (b.cleared) return;
+  if (b.cleared || isCircuit()) return;
   if (isFree()) {
     // Solo / host: the sim clears its own walls (freeUpdate mirrors it); guests follow the same clock
     if (mode !== 'guest') return;
@@ -315,8 +341,13 @@ function fadeDead(b, dt){
 /* ---------- Online: host side ---------- */
 function snapshot(){
   // Free: each rider's packed sim state plus the last input of theirs the host has applied (ack)
-  if (isFree() && fw) return {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW, f:1, t:fw.tick,
-    b:bikes.map(b => { const a = FS.pack(b.fr); a.push(b.fq ? b.fq.ack : -1); return a; })};
+  // Circuit: plus FS.packRace per rider, pickups ('1' = taken) and the results once the race is over
+  if (isFree() && fw) {
+    const c = isCircuit(), o = {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW, f:1, t:fw.tick,
+      b:bikes.map(b => { const a = FS.pack(b.fr); a.push(b.fq ? b.fq.ack : -1); if (c) a.push(...FS.packRace(b.fr)); return a; })};
+    if (c) { o.c = 1; o.pk = Array.from(fw.pk, v => v > fw.tick ? 1 : 0).join(''); if (raceRes) o.res = raceRes; }
+    return o;
+  }
   return {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW,
     b:bikes.map(b => [b.cx | 0, b.cz | 0, b.dir | 0, Math.round(b.p * 100), Math.round(b.mul * 100), b.alive ? 1 : 0,
       Math.round(b.energy * 100), b.grind > 0 ? 1 : 0, b.k | 0, b.nt | 0])};
@@ -389,6 +420,7 @@ function guestRound(st){
 function applySnapshot(st){
   if (mode !== 'guest' || !st || st.m !== matchId || !Array.isArray(st.b)) return;
   if (Array.isArray(st.sc)) scores = st.sc;
+  if (Array.isArray(st.res)) raceRes = st.res;
   if (st.s === 'end') { matchOver(bikes[st.w] || null); return; }
   if (st.r !== round) (st.f ? freeGuestRound : guestRound)(st);
   const now = performance.now();
@@ -408,7 +440,7 @@ function applySnapshot(st){
   if (st.s !== state) {
     const prev = state; state = st.s;
     if (state === 'run' && prev === 'countdown') { flash('GO', '', .6); SFX.hit('go'); powerOn(); }
-    else if (state === 'over') roundMsg(st.w >= 0 ? bikes[st.w] : null);
+    else if (state === 'over') { if (isCircuit()) { lastW = st.w; raceOverMsg(); } else roundMsg(st.w >= 0 ? bikes[st.w] : null); }
   }
   if (state === 'countdown') cd = st.cd;
   updateBoard();
@@ -456,12 +488,13 @@ const phist = new Array(256), tailBuf = new Float32Array(128);   // guest: {inpu
 const yawOf = h => headingYaw(Math.cos(h), Math.sin(h));
 
 function freeReset(){
+  if (isCircuit()) return circuitReset();
   fw = FS.createWorld({seed:(Math.random() * 4294967296) >>> 0, cfg:{ai:DIFF[cfg.diff]}});
   const sp = FS.spawnRing(fw, bikes.length);
   bikes.forEach((b, i) => {
     const s = sp[i], r = FS.addRider(fw, {ai:b.ai, x:s.x, z:s.z, h:s.h});
     if (b.gone) { FS.kill(fw, r); FS.clearTrail(fw, r); }
-    Object.assign(b, {fr:r, segs:[], wpts:r.pts, wn:r.n, wtail:null, wtn:0, fq:inputQueue(), sent:0, ip:null, ex:0, ez:0,
+    Object.assign(b, {fr:r, segs:[], wpts:r.pts, wn:r.n, wtail:null, wtn:0, wlist:null, fq:inputQueue(), sent:0, ip:null, ex:0, ez:0,
       mul:1, energy:r.energy, grind:0, queue:[], sched:[], local:[], gq:[], alive:!b.gone, deathT:0, cleared:b.gone,
       wantBoost:false, k:0, nt:0, grace:0});
     resetPose(b, yawOf(s.h));
@@ -479,7 +512,7 @@ function freeInputs(){
   const inp = [];
   for (const b of bikes) {
     if (b.ai || !b.alive) continue;
-    if (b === player) inp[b.id] = {steer:steerKey(), boost:keys.boost, snap:keys.snapQ.shift() || 0};
+    if (b === player) inp[b.id] = {steer:steerKey(), boost:keys.boost, snap:keys.snapQ.shift() || 0, burst:keys.burst, brake:keys.brake};
     else if (b.remote && b.fq) inp[b.id] = queueTake(b.fq);
   }
   return inp;
@@ -488,8 +521,9 @@ function freeUpdate(dt){
   FS.advance(fw, dt, freeInputs);
   for (const e of fw.events) {
     const b = bikes[e.id]; if (!b) continue;
-    if (e.type === 'crash' && b.alive) { b.pos.set(e.x, 0, e.z); crash(b); }
+    if (e.type === 'crash' && b.alive) { b.pos.set(e.x, 0, e.z); crash(b, e.by); }
     else if (e.type === 'snap' && b === player && !b.ai) SFX.whoosh(e.dir);
+    else if (isCircuit()) raceEvent(b, e);
   }
   fw.events.length = 0;
   for (const b of bikes) {
@@ -513,10 +547,12 @@ function placeFree(b, dt){
   b.vpos.set(x - c * back, 0, z - sn * back);
   const moving = state === 'run' || state === 'over' || state === 'demo';
   b.powerT = Math.max(0, (b.powerT || 0) - dt);
-  b.visualSpeed = (moving ? BASE * b.mul / VC.vehicle.scale : 0) + VC.effects.powerOn.speed * (b.powerT / VC.effects.powerOn.duration);
+  b.visualSpeed = (moving ? fw.cfg.base * b.mul / VC.vehicle.scale : 0) + VC.effects.powerOn.speed * (b.powerT / VC.effects.powerOn.duration);
   b.particleScale = pipe.particleScale;
   updatePoseFree(b, dt, b.vpos, headingYaw(c, sn), b.visualSpeed);
   b.trim = back + b.mesh.tail;
+  // Circuit: a respawned rider blinks while it ghosts
+  if (r.race) b.mesh.group.visible = !(r.ghostT > 0) || Math.floor(performance.now() / 1000 * VC.track.ghostBlink) % 2 === 0;
 }
 
 // Feed trails.js / the minimap: the sim's polyline (guests: up to what the drawn head has reached)
@@ -559,8 +595,8 @@ function freeChunk(v){
   for (const k in v) {
     const b = bikes[+k.slice(1)], a = v[k];
     if (!b || !b.fr || !Array.isArray(a) || a.length < 3) continue;
-    const flat = new Array(a.length - 1);
-    for (let j = 1; j < a.length; j++) flat[j - 1] = a[j] / 100;
+    const flat = new Array(a.length - 1), st = isCircuit() ? 3 : 0;   // circuit: x, z, tick (raw)
+    for (let j = 1; j < a.length; j++) flat[j - 1] = st && (j - 1) % 3 === 2 ? a[j] : a[j] / 100;
     FS.setPoints(fw, b.fr, a[0], flat);
   }
 }
@@ -571,14 +607,17 @@ function addFreePoints(r, v){
 }
 function freeGuestRound(st){
   round = st.r;
-  fw = FS.createWorld({cfg:{ai:DIFF[cfg.diff]}});
+  const c = isCircuit();
+  fw = c ? circuitWorld(1) : FS.createWorld({cfg:{ai:DIFF[cfg.diff]}});
+  if (c) { trackView.show(fw.track); hudReset(); fw.tick = st.t || 0; }
   fsnaps = []; fclk = null; pSeq = -1; pOut = ''; pOutT = 0; keys.snapQ.length = 0;
   st.b.forEach((a, i) => {
     const b = bikes[i]; if (!b) return;
     const r = FS.addRider(fw, {ghost:true, trail:false});
-    FS.unpack(r, a); r.px = r.x; r.pz = r.z; r.ph = r.h; r.alive = !!a[6]; r.cleared = !r.alive;
-    Object.assign(b, {fr:r, segs:[], wpts:r.pts, wn:0, wtail:null, wtn:0, ex:0, ez:0, ip:b === player ? null : {x:r.x, z:r.z, h:r.h}, in0:0,
-      mul:r.mul, energy:r.energy, grind:r.grind, alive:r.alive, deathT:0, cleared:!r.alive, snapT:0});
+    FS.unpack(r, a); r.px = r.x; r.pz = r.z; r.ph = r.h; r.alive = !!a[6]; r.cleared = !r.alive && !c;
+    if (c) FS.unpackRace(fw, r, a, 13);
+    Object.assign(b, {fr:r, segs:[], wpts:c ? null : r.pts, wn:0, wtail:null, wtn:0, wlist:c ? newWlist() : null, ex:0, ez:0, ip:b === player ? null : {x:r.x, z:r.z, h:r.h}, in0:0,
+      mul:r.mul, energy:r.energy, grind:r.grind, alive:r.alive, deathT:0, cleared:r.cleared, snapT:0});
     resetPose(b, yawOf(r.h));
     revive(b);
     if (!b.alive) return;
@@ -595,10 +634,25 @@ function freeGuestRound(st){
 function freeSnapshot(st, now){
   // Host tick -> local clock: the smallest offset seen (least delayed snapshot), drifting slowly
   if (st.t > 0) { const off = now - st.t * 1000 / 60; fclk = fclk === null || off < fclk ? off : fclk + (off - fclk) * .02; }
+  st.at = now;
   fsnaps.push(st); if (fsnaps.length > 16) fsnaps.shift();
+  const c = isCircuit();
+  if (c) {
+    fw.tick = Math.max(fw.tick, st.t);
+    if (typeof st.pk === 'string') for (let k = 0; k < fw.pk.length; k++) fw.pk[k] = st.pk[k] === '1' ? 2e9 : 0;
+  }
   st.b.forEach((a, i) => {
     const b = bikes[i]; if (!b || !b.fr) return;
     const r = b.fr;
+    if (c) {
+      // Circuit: smashed riders come back (respawn); timing, meter and items ride along
+      if (!a[6]) { if (b.alive) { r.alive = false; r.lay = false; crash(b, -1); } FS.unpackRace(fw, r, a, 13); return; }
+      if (!b.alive) { FS.unpack(r, a); r.px = r.x; r.pz = r.z; r.ph = r.h; r.alive = true; r.held = false; FS.unpackRace(fw, r, a, 13); respawnBike(b); return; }
+      if (b === player) reconcile(b, a);
+      else { FS.unpack(r, a); b.mul = r.mul; b.energy = r.energy; b.grind = r.grind; }
+      FS.unpackRace(fw, r, a, 13);
+      return;
+    }
     if (!a[6]) { if (b.alive) { FS.kill(fw, r); crash(b); } return; }
     if (!b.alive) return;
     if (b === player) { reconcile(b, a); return; }
@@ -629,17 +683,18 @@ function reconcile(b, a){
 function freeGuestFrame(dt){
   if (!fw || !player) return;
   const r = player.fr;
+  if (isCircuit()) fw.tick = Math.max(fw.tick, Math.floor(nowTick()));   // burst walls expire on the host's clock
   if (r && player.alive && (state === 'run' || state === 'over')) {
     fw.acc = Math.min(fw.acc + dt, FDT * 8);
     while (fw.acc >= FDT) {
       fw.acc -= FDT;
-      const inp = {steer:steerKey(), boost:keys.boost, snap:keys.snapQ.shift() || 0}, q = ++pSeq;
+      const inp = {steer:steerKey(), boost:keys.boost, snap:keys.snapQ.shift() || 0, burst:keys.burst, brake:keys.brake}, q = ++pSeq;
       r.px = r.x; r.pz = r.z; r.ph = r.h;
       const snapped = predictTick(r, inp);
       if (snapped) SFX.whoosh(snapped);
       phist[q & 255] = {i:inp, x:r.x, z:r.z};
       if (!pOut) pOutQ = q;
-      pOut += encodeIn(inp.steer, inp.boost, inp.snap);
+      pOut += encodeIn(inp.steer, inp.boost, inp.snap, inp.burst, inp.brake);
       if (inp.snap) pOutT = 1;   // send snap turns right away
     }
     pOutT += dt;
@@ -654,6 +709,7 @@ function freeGuestFrame(dt){
 function interp(b, tick){
   const i = b.id, ip = b.ip; let s0 = null, s1 = null;
   for (const s of fsnaps) { if (s.t <= tick) s0 = s; else { s1 = s; break; } }
+  if (s0 && s1 && s0.b[i][6] !== s1.b[i][6]) s0 = null;   // died or respawned in between: no sliding across the track
   if (s0 && s1) {
     const a = s0.b[i], c = s1.b[i], k = (tick - s0.t) / Math.max(1, s1.t - s0.t), dh = FS.wrap((c[2] - a[2]) / 1e4);
     ip.x = (a[0] + (c[0] - a[0]) * k) / 100; ip.z = (a[1] + (c[1] - a[1]) * k) / 100;
@@ -666,6 +722,241 @@ function interp(b, tick){
   }
 }
 
+/* ---------- Circuit ---------- */
+/* Laps of a track on the free-steering sim (createWorld({track})). Solo and host step it like any
+   free round; the sim reports gates, laps, crashes, respawns and pickups as events. Guests get the
+   circuit extras (FS.packRace) in every snapshot, the pickup states as a '0'/'1' string (pk) and the
+   results (res) once the race is over. HUD timing (lap, best, splits) reads the rider's sim state,
+   so it works the same for solo, host and guests. */
+const WL = 640;                                       // burst wall points drawn per rider
+let graceT = null, raceRes = null, hud = null, noteT = 0, radarBg = null;
+const newWlist = () => ({x:new Float32Array(WL), z:new Float32Array(WL), a:new Float32Array(WL), n:0, live:false});
+const fmtT = ticks => { const t = Math.max(0, ticks) / 60, m = Math.floor(t / 60), sec = t - m * 60; return `${m}:${sec.toFixed(3).padStart(6, '0')}`; };
+// Host tick now: solo / host read the world; guests estimate it from the snapshot clock
+// (the newest snapshot's tick plus a little extrapolation, so a slow host never runs the clock ahead)
+const nowTick = () => {
+  if (mode !== 'guest') return fw.tick + fw.acc / FDT;
+  const st = fsnaps[fsnaps.length - 1];
+  return st ? st.t + Math.min(12, (performance.now() - st.at) * 60 / 1000) : fw.tick;
+};
+function chime(f0, f1, vol = .05){ if (SFX.ctx) SFX.tone('sine', f0, f1, .16, vol, SFX.ctx.currentTime, SFX.fxG); }
+const hexOf = css => parseInt(css.slice(1), 16);
+
+function circuitWorld(seed){
+  return FS.createWorld({seed, track:trackOf(cfg.track), cfg:{ai:DIFF[cfg.diff], circuit:{laps:cfg.laps}}});
+}
+function circuitReset(){
+  fw = circuitWorld((Math.random() * 4294967296) >>> 0);
+  const sp = FS.gridSlots(fw, bikes.length);
+  trackView.show(fw.track);
+  bikes.forEach((b, i) => {
+    const s = sp[i], r = FS.addRider(fw, {ai:b.ai, x:s.x, z:s.z, h:s.h});
+    if (b.gone) FS.kill(fw, r);
+    Object.assign(b, {fr:r, segs:[], wpts:null, wn:0, wtail:null, wtn:0, wlist:newWlist(), fq:inputQueue(), sent:0, ip:null, ex:0, ez:0,
+      mul:1, energy:r.energy, grind:0, queue:[], sched:[], local:[], gq:[], alive:!b.gone, deathT:0, cleared:false,
+      wantBoost:false, k:0, nt:0, grace:0});
+    resetPose(b, yawOf(s.h));
+    revive(b);
+    if (!b.alive) return;
+    fx.startScan(b);
+    placeFree(b, 0);
+  });
+  keys.snapQ.length = 0;
+  spectT = 0; deadT = 0;
+  hudReset();
+}
+function hudReset(){
+  graceT = null; raceRes = null; noteT = 0;
+  hud = {gp:0, best:[], cur:[], bestLap:0, wrong:false, boardT:0, splitT:0};
+  $('split').textContent = ''; $('raceNote').textContent = '';
+}
+
+// Burst walls for trails.js: every live point with its age fade, zero-intensity joins between walls
+function circuitWalls(b){
+  const r = b.fr, L = b.wlist; if (!L) return;
+  L.n = 0; L.live = false;
+  if (!r || !r.n) return;
+  const K = fw.cfg.circuit, life = K.burstLife * 60, fade = K.burstFade * 60, tick = nowTick();
+  const alpha = i => Math.max(0, Math.min(1, ((r.pt[i] >> 1) + life - tick) / fade));
+  let i0 = r.n;
+  while (i0 > 0 && alpha(i0 - 1) > 0) i0--;
+  if (i0 >= r.n && !(b.alive && r.lay)) return;
+  const push = (x, z, a) => { if (L.n >= WL) return; L.x[L.n] = x; L.z[L.n] = z; L.a[L.n] = a; L.n++; };
+  for (let i = Math.max(0, i0 - 1); i < r.n; i++) {
+    const x = r.pts[2 * i], z = r.pts[2 * i + 1];
+    if ((r.pt[i] & 1) && L.n) { push(L.x[L.n - 1], L.z[L.n - 1], 0); push(x, z, 0); }
+    push(x, z, i < i0 ? 0 : alpha(i));
+  }
+  if (b.alive && r.lay && L.n) { push(b.pos.x, b.pos.z, 1); L.live = true; }
+}
+
+// The sim's circuit events (solo / host)
+function raceEvent(b, e){
+  const me = b === player;
+  if (e.type === 'respawn') respawnBike(b);
+  else if (e.type === 'pickup') {
+    if (me) { chime(880, 1760); note({boost:'BOOST CELL', shield:'SHIELD ARMED', recharge:'BURST RECHARGED', phase:'PHASE'}[e.kind]); }
+  } else if (e.type === 'shield') {
+    fx.crash(e.x, e.z, hexOf(VC.track.pickups.colors.shield), .25);
+    if (me) { note('SHIELD TOOK THE HIT'); rig.impact(.3); }
+  } else if (e.type === 'burst') { if (me && e.on) SFX.whoosh(0); }
+  else if (e.type === 'scrape') { if (me) { rig.impact(.12 + e.k * .3); SFX.flyby(.25 + e.k * .5, 0); } }
+  else if (e.type === 'finish') {
+    if (graceT === null) graceT = fw.cfg.circuit.grace;
+    if (me) { SFX.hit(e.place === 1 ? 'win' : 'go'); setMsg('FINISHED', `P${e.place} · ${fmtT(e.t)}`); msgT = 3; }
+    else if (e.place === 1 && player && !player.fr.done) flash(b.name, 'takes the flag', 1.6);
+  }
+}
+function note(text){ $('raceNote').textContent = text; noteT = 1.6; }
+
+// Back on the track after a smash (sim respawn, or a guest seeing the rider alive again)
+function respawnBike(b){
+  const r = b.fr;
+  b.alive = true; b.cleared = false; b.deathT = 0; b.ex = b.ez = 0;
+  if (b.ip) { b.ip.x = r.x; b.ip.z = r.z; b.ip.h = r.h; }
+  resetPose(b, yawOf(r.h));
+  b.mesh.group.visible = true;
+  fx.startScan(b);
+  placeFree(b, 0);
+  updateBoard();
+}
+
+// Host / solo: is the race over? (everyone done, every human done, or the grace after the winner ran out)
+function circuitRun(dt){
+  if (graceT !== null) graceT -= dt;
+  const humans = bikes.filter(b => !b.ai && !b.gone);
+  const all = bikes.every(b => b.gone || b.fr.done), humansDone = humans.length > 0 && humans.every(b => b.fr.done);
+  if (all || humansDone || (graceT !== null && graceT <= 0)) endRace();
+}
+// [id, position, total ticks (-1: not finished), best lap ticks, laps] in race order
+function results(){
+  return FS.raceOrder(fw).map((r, i) => [r.id, i + 1, r.done ? r.finT : -1, r.best, Math.min(cfg.laps, FS.lapOf(fw, r))]);
+}
+function endRace(){
+  if (state !== 'run') return;
+  state = 'over'; overT = 4;
+  raceRes = results();
+  lastW = raceRes[0] ? raceRes[0][0] : -1;
+  raceOverMsg();
+  updateBoard();
+  pushState();
+}
+function raceOverMsg(){
+  const res = raceRes || [], mine = res.find(x => x[0] === player.id), w = bikes[lastW];
+  if (w === player) { SFX.hit('win'); emit('round-win'); }
+  setMsg(w === player ? 'VICTORY' : 'RACE OVER', mine ? `P${mine[1]}${mine[2] >= 0 ? ' · ' + fmtT(mine[2]) : ' · ' + mine[4] + ' / ' + cfg.laps + ' laps'}` : '');
+}
+
+/* HUD: lap x / N, current lap time, best lap, split against your best lap at each checkpoint,
+   position, burst meter and the item you carry. Runs off the rider's sim state in every role. */
+function circuitHud(dt){
+  const r = player.fr; if (!r || !fw || !hud) return;
+  const G = fw.track.gates.length, tick = nowTick();
+  // gates passed since last frame (usually one): splits and lap times
+  while (hud.gp < r.gp) {
+    hud.gp++;
+    const k = (hud.gp - 1) % G, fresh = hud.gp === r.gp;
+    trackView.flashGate(k);
+    if (k !== 0) {
+      const t = r.gateT - r.lapT0;
+      hud.cur[k] = t;
+      if (hud.best[k] && fresh) showSplit(t - hud.best[k]);
+      if (fresh) chime(1200, 1400, .03);
+    } else if (hud.gp > 1) {
+      const t = r.lastLap, prev = hud.bestLap;
+      if (!prev || t < prev) { hud.bestLap = t; hud.best = hud.cur.slice(); }
+      hud.cur = [];
+      if (fresh && !r.done) {
+        if (prev) showSplit(t - prev); else { $('split').textContent = fmtT(t); $('split').className = 'split num'; hud.splitT = 3; }
+        const lap = FS.lapOf(fw, r);
+        flash(lap === cfg.laps - 1 ? 'FINAL LAP' : `LAP ${lap + 1}`, `last lap ${fmtT(t)}${!prev || t < prev ? ' · best' : ''}`, 1.4);
+        chime(700, 1400, .05);
+      }
+    }
+  }
+  if (hud.splitT > 0 && (hud.splitT -= dt) <= 0) $('split').textContent = '';
+  if (noteT > 0 && (noteT -= dt) <= 0) $('raceNote').textContent = '';
+  $('lapNow').textContent = r.done ? fmtT(r.finT) : r.gp ? fmtT(tick - r.lapT0) : fmtT(0);
+  $('lapBest').textContent = r.best ? fmtT(r.best) : '–:––.–––';
+  const order = FS.raceOrder(fw), pos = order.indexOf(r) + 1;
+  $('racePos').textContent = `P${r.done ? r.place : pos}`; $('raceOf').textContent = `/ ${order.filter(o => !o.out).length}`;
+  $('brst').style.width = (r.meter * 100).toFixed(1) + '%';
+  $('brst').parentNode.classList.toggle('on', !!r.lay);
+  const item = r.phaseT > 0 ? 'phase' : r.shield ? 'shield' : '', itemEl = $('item');
+  if (itemEl.dataset.k !== item) {
+    itemEl.dataset.k = item;
+    itemEl.textContent = item === 'phase' ? 'PHASE' : item === 'shield' ? 'SHIELD' : 'NO ITEM';
+    itemEl.classList.toggle('on', !!item);
+    itemEl.style.setProperty('--c', item ? VC.track.pickups.colors[item] : 'var(--faint)');
+  }
+  // wrong way
+  const wrong = r.wrongT > 45 && player.alive && state === 'run';
+  if (wrong && !hud.wrong) setMsg('WRONG WAY', 'turn around');
+  else if (!wrong && hud.wrong) setMsg('', '');
+  hud.wrong = wrong;
+  if ((hud.boardT -= dt) <= 0) { hud.boardT = .25; updateBoard(); }
+}
+function showSplit(d){
+  $('split').textContent = `${d <= 0 ? '−' : '+'}${(Math.abs(d) / 60).toFixed(3)}`;
+  $('split').className = 'split num ' + (d <= 0 ? 'good' : 'bad');
+  hud.splitT = 3;
+}
+function circuitBoard(){
+  const order = FS.raceOrder(fw);
+  order.forEach((r, pos) => {
+    const b = bikes[r.id], el = $('chip' + r.id); if (!b || !el) return;
+    el.style.order = pos;
+    el.classList.toggle('dead', !b.alive || b.gone);
+    const t = el.querySelector('.lapc');
+    if (t) t.textContent = b.gone ? 'OUT' : r.done ? `P${r.place}` : `L${Math.min(cfg.laps, FS.lapOf(fw, r) + 1)}`;
+  });
+  $('aliveLabel').textContent = 'Circuit';
+  const r = player.fr;
+  if (r) $('roundLabel').textContent = r.done ? 'FINISHED' : `LAP ${Math.min(cfg.laps, FS.lapOf(fw, r) + 1)}/${cfg.laps}`;
+}
+// Minimap: the track outline (drawn once), burst walls, pickups and riders
+function circuitRadar(){
+  const W = radar.width, T = fw.track, bd = T.bounds, pad = 10;
+  const S = (W - pad * 2) / Math.max(bd.maxX - bd.minX, bd.maxZ - bd.minZ);
+  const ox = pad + ((W - pad * 2) - (bd.maxX - bd.minX) * S) / 2 - bd.minX * S, oz = pad + ((W - pad * 2) - (bd.maxZ - bd.minZ) * S) / 2 - bd.minZ * S;
+  if (!radarBg || radarBg.id !== T.id) {
+    const c = document.createElement('canvas'); c.width = c.height = W;
+    const g = c.getContext('2d');
+    g.lineJoin = g.lineCap = 'round';
+    g.beginPath();
+    for (let i = 0; i <= T.M; i++) { const k = i % T.M, x = T.X[k] * S + ox, y = T.Z[k] * S + oz; if (i) g.lineTo(x, y); else g.moveTo(x, y); }
+    g.strokeStyle = 'rgba(127,135,150,.3)'; g.lineWidth = Math.max(3, 12 * S); g.stroke();
+    g.strokeStyle = 'rgba(228,232,239,.35)'; g.lineWidth = 1; g.stroke();
+    const g0 = T.gates[0];
+    g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = 2; g.beginPath(); g.moveTo(g0.ax * S + ox, g0.az * S + oz); g.lineTo(g0.bx * S + ox, g0.bz * S + oz); g.stroke();
+    radarBg = {id:T.id, c};
+  }
+  rctx.clearRect(0, 0, W, W);
+  rctx.drawImage(radarBg.c, 0, 0);
+  rctx.lineCap = rctx.lineJoin = 'round';
+  bikes.forEach(b => {
+    const L = b.wlist; if (!L || L.n < 2) return;
+    rctx.strokeStyle = b.r.css; rctx.lineWidth = 2;
+    rctx.beginPath();
+    for (let i = 0; i < L.n; i++) { const x = L.x[i] * S + ox, y = L.z[i] * S + oz; if (i && L.a[i] > 0 && L.a[i - 1] > 0) rctx.lineTo(x, y); else rctx.moveTo(x, y); }
+    rctx.stroke();
+  });
+  const tick = nowTick();
+  rctx.globalAlpha = .75;
+  T.pickups.forEach((p, k) => {
+    if (fw.pk[k] > tick) return;
+    rctx.fillStyle = VC.track.pickups.colors[p.kind];
+    rctx.fillRect(p.x * S + ox - 1.5, p.z * S + oz - 1.5, 3, 3);
+  });
+  rctx.globalAlpha = 1;
+  bikes.forEach(b => {
+    if (!b.alive) return;
+    const x = b.pos.x * S + ox, y = b.pos.z * S + oz;
+    rctx.fillStyle = b.r.css; rctx.beginPath(); rctx.arc(x, y, b === player ? 6 : 4.5, 0, Math.PI * 2); rctx.fill();
+    if (b === player) { rctx.strokeStyle = '#ffffff'; rctx.lineWidth = 2; rctx.stroke(); }
+  });
+}
+
 /* ---------- Crash particles ---------- */
 /* ---------- HUD ---------- */
 function setMsg(m, s){ $('msg').textContent = m || ''; $('sub').textContent = s || ''; msgT = 0; }
@@ -673,10 +964,11 @@ function flash(m, s, t){ setMsg(m, s); msgT = t; }
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function buildBoard(){
   $('board').innerHTML = bikes.map(b =>
-    `<div class="chip cut${b === player ? ' me' : ''}" id="chip${b.id}" style="--c:${b.r.css}"><span class="dot"></span><span class="name">${esc(b.name)}</span><span class="pips">${'<span class="pip"></span>'.repeat(cfg.win)}</span></div>`).join('');
+    `<div class="chip cut${b === player ? ' me' : ''}" id="chip${b.id}" style="--c:${b.r.css}"><span class="dot"></span><span class="name">${esc(b.name)}</span>${isCircuit() ? '<span class="lapc num">L1</span>' : `<span class="pips">${'<span class="pip"></span>'.repeat(cfg.win)}</span>`}</div>`).join('');
   updateBoard();
 }
 function updateBoard(){
+  if (isCircuit()) { if (fw && fw.track && player) circuitBoard(); return; }
   bikes.forEach(b => {
     const el = $('chip' + b.id); if (!el) return;
     el.classList.toggle('dead', !b.alive);
@@ -689,6 +981,7 @@ function updateBoard(){
 // Minimap: walls as thin lines, riders as dots (you get a white ring)
 const radar = $('radar'), rctx = radar.getContext('2d'); let radarT = 0;
 function drawRadar(){
+  if (isCircuit()) { if (fw && fw.track) circuitRadar(); return; }
   const W = radar.width, S = W / N;
   rctx.clearRect(0, 0, W, W);
   rctx.lineCap = rctx.lineJoin = 'round';
@@ -747,7 +1040,8 @@ function updateThreats(){
 function updateHud(dt){
   updateThreats();
   if (state === 'demo' || !player) return;
-  $('spd').textContent = Math.round(BASE * player.mul * 11 * (player.alive && state !== 'countdown' && state !== 'wait' ? 1 : 0));
+  $('spd').textContent = Math.round((isFree() && fw ? fw.cfg.base : BASE) * player.mul * 11 * (player.alive && state !== 'countdown' && state !== 'wait' ? 1 : 0));
+  if (isCircuit() && state !== 'wait') circuitHud(dt);
   $('nrg').style.width = (player.energy * 100).toFixed(1) + '%';
   $('slip').classList.toggle('on', player.alive && player.grind > 0);
   if (msgT > 0) { msgT -= dt; if (msgT <= 0) setMsg('', ''); }
@@ -783,33 +1077,43 @@ function powerOn(){ bikes.forEach(b => { b.powerT = VC.effects.powerOn.duration;
 
 /* ---------- Flow ---------- */
 function startDemo(){
-  mode = 'solo'; net = null; me = 0; paused = false; $('pausebox').hidden = true; cfg.steer = 'free';
+  mode = 'solo'; net = null; me = 0; paused = false; $('pausebox').hidden = true; cfg.steer = 'free'; cfg.event = 'arena';
+  arena.setCircuit(false); trackView.show(null); document.body.classList.remove('circuit');
   state = 'demo'; buildRiders(RIDERS.slice(0, 4).map((r, i) => ({name:r.name, bot:true, color:VC.riders[i].key}))); resetRound(); demoT = 0;
   $('hud').hidden = true; $('touch').hidden = true; $('menu').hidden = false;
 }
 function begin(){
   buildBoard();
   document.documentElement.style.setProperty('--accent', player.r.css);   // your colour is the only UI accent
-  $('winLabel').textContent = `First to ${cfg.win} rounds`;
+  const c = isCircuit();
+  $('winLabel').textContent = c ? `${trackOf(cfg.track).name} · ${cfg.laps} laps` : `First to ${cfg.win} rounds`;
+  arena.setCircuit(c);
+  document.body.classList.toggle('circuit', c);
+  $('lapPanel').hidden = !c; $('burstRow').hidden = !c; $('tX').hidden = !c;
+  if (!c) trackView.show(null);
   $('menu').hidden = true; $('hud').hidden = false; $('touch').hidden = !coarse;
-  keys.boost = keys.l = keys.r = false; keys.snapQ.length = 0; sentBoost = false; lastW = -1; snapAcc = 0;
+  keys.boost = keys.l = keys.r = keys.burst = keys.brake = false; keys.snapQ.length = 0; sentBoost = false; lastW = -1; snapAcc = 0;
   $('tL').setAttribute('aria-label', isFree() ? 'Steer left' : 'Turn left');
   $('tR').setAttribute('aria-label', isFree() ? 'Steer right' : 'Turn right');
-  emit('match-start', {online:mode !== 'solo', host:mode === 'host', riders:bikes.length, diff:cfg.diff});
+  emit('match-start', {online:mode !== 'solo', host:mode === 'host', riders:bikes.length, diff:cfg.diff, event:cfg.event});
   if (mode === 'guest') { state = 'wait'; setMsg('SYNCING', 'linking to the host grid'); }
   else nextRound();
 }
 function startSolo(o){
-  SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win, steer:o.steer === 'grid' ? 'grid' : 'free'};
+  SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win, steer:o.steer === 'grid' ? 'grid' : 'free', ...eventCfg(o)};
   buildRiders([{name:o.name || 'YOU', color:o.color}, ...RIDERS.slice(1, 1 + o.bots).map(r => ({name:r.name, bot:true}))]);
   begin();
 }
 function startOnline(o){
   SFX.init(); mode = o.role; net = o.net; me = o.me; matchId = o.id; turnLog = {};
   fpLog = {}; fpSeq = 0;
-  cfg = {diff:o.diff, win:o.win, steer:o.steer === 'free' ? 'free' : 'grid'};   // rooms from before free steering race on the grid
+  cfg = {diff:o.diff, win:o.win, steer:o.steer === 'free' ? 'free' : 'grid', ...eventCfg(o)};   // rooms from before free steering race on the grid
   buildRiders(o.roster.map((p, i) => ({name:p.name, bot:p.bot, color:p.color, remote:o.role === 'host' && !p.bot && i !== o.me})));
   begin();
+}
+// Event settings from the menu or the room: anything but 'circuit' is the arena
+function eventCfg(o){
+  return {event:o.event === 'circuit' ? 'circuit' : 'arena', laps:[3, 5, 7].includes(+o.laps) ? +o.laps : 3, track:o.track || DEFAULT_TRACK};
 }
 function nextRound(){
   round++; lastW = -1; resetRound(); updateBoard(); SFX.riser(3); lastCd = 4;
@@ -832,13 +1136,30 @@ function endRound(w){
   pushState();
 }
 function afterRound(){
+  if (isCircuit()) return matchOver(bikes[lastW] || null);
   const top = scores.indexOf(Math.max(...scores));
   if (scores[top] >= cfg.win) matchOver(bikes[top]); else nextRound();
 }
 function matchOver(w){
+  if (isCircuit()) return circuitOver();
   const summary = {online:mode !== 'solo', host:mode === 'host', won:!!w && w === player, winner:w ? w.name : '', winnerCss:w ? w.r.css : VC.palette.textDim,
     roundsWon:scores[player.id] || 0, rounds:round, diff:cfg.diff,
     table:bikes.map(b => ({name:b.name, css:b.r.css, score:scores[b.id] || 0, me:b === player, bot:b.ai})).sort((a, b) => b.score - a.score)};
+  if (mode === 'host') { state = 'end'; lastW = w ? w.id : -1; pushState(); }
+  SFX.hit(summary.won ? 'win' : 'fall');
+  setMsg('', '');
+  startDemo();
+  if (hooks.end) hooks.end(summary);
+}
+// Circuit results: finishing order (laps, then time), total and best lap times
+function circuitOver(){
+  const res = raceRes || (fw && fw.track ? results() : []), n = res.length, w = res[0] ? bikes[res[0][0]] : null;
+  const summary = {online:mode !== 'solo', host:mode === 'host', won:!!w && w === player, winner:w ? w.name : '', winnerCss:w ? w.r.css : VC.palette.textDim,
+    roundsWon:w === player ? 1 : 0, rounds:1, diff:cfg.diff, event:'circuit', laps:cfg.laps, track:trackOf(cfg.track).name,
+    table:res.filter(x => bikes[x[0]]).map(([id, place, total, best, laps]) => {
+      const b = bikes[id];
+      return {name:b.name, css:b.r.css, score:n - place, place, total:total >= 0 ? total / 60 : null, best:best ? best / 60 : null, laps, me:b === player, bot:b.ai};
+    })};
   if (mode === 'host') { state = 'end'; lastW = w ? w.id : -1; pushState(); }
   SFX.hit(summary.won ? 'win' : 'fall');
   setMsg('', '');
@@ -852,7 +1173,7 @@ function togglePause(force){
   paused = open && mode === 'solo';
   $('pauseTitle').textContent = mode === 'solo' ? 'PAUSED' : 'MENU';
   $('pauseHint').textContent = mode === 'solo' ? 'Press P or tap Resume' : 'The race keeps running while this is open';
-  if (open) keys.boost = keys.l = keys.r = false;
+  if (open) keys.boost = keys.l = keys.r = keys.burst = keys.brake = false;
 }
 function quit(){
   const wasOnline = mode !== 'solo';
@@ -861,7 +1182,7 @@ function quit(){
 }
 function cycleCam(){ camMode = (camMode + 1) % 3; $('camLabel').textContent = CAMS[camMode]; }
 function queueTurn(t){
-  if (paused || !player || !player.alive || player.ai) return;
+  if (paused || !player || !player.alive || player.ai || isCircuit()) return;   // no snap turns on a circuit
   if (!['countdown', 'run'].includes(state)) return;
   if (isFree()) { if (keys.snapQ.length < 2) keys.snapQ.push(t); return; }   // free: a snap turn on the next tick
   if (mode === 'guest') {
@@ -872,7 +1193,7 @@ function queueTurn(t){
   }
   if (player.queue.length < 2) player.queue.push(t);
 }
-function trySkip(){ if (mode !== 'guest' && state === 'run' && !humansAlive()) endRound(null); }
+function trySkip(){ if (mode !== 'guest' && state === 'run' && !isCircuit() && !humansAlive()) endRound(null); }
 
 /* ---------- Input ---------- */
 function playing(){ return ['countdown', 'run', 'over', 'wait'].includes(state); }
@@ -885,10 +1206,13 @@ addEventListener('keydown', e => {
   if (a === 'mute' && !e.repeat) { SFX.toggle(); return; }
   if (!playing() || !a) return;
   if (e.repeat && a !== 'boost') return;
-  if (a === 'left' || a === 'right') { if (isFree()) keys[a === 'left' ? 'l' : 'r'] = true; else queueTurn(a === 'left' ? -1 : 1); }
+  // Circuit: no snap turns, so Shift + arrow just steers (Shift on its own is Light Burst)
+  const steerL = a === 'left' || (a === 'snapLeft' && isCircuit()), steerR = a === 'right' || (a === 'snapRight' && isCircuit());
+  if (steerL || steerR) { if (isFree()) keys[steerL ? 'l' : 'r'] = true; else queueTurn(steerL ? -1 : 1); }
   else if (a === 'snapLeft' || a === 'snapRight') queueTurn(a === 'snapLeft' ? -1 : 1);
   else if (a === 'boost') { keys.boost = true; if (!e.repeat) trySkip(); }
   else if (a === 'burst') keys.burst = true;
+  else if (a === 'brake') keys.brake = true;
   else if (a === 'camera') cycleCam();
   else if (a === 'pause') togglePause();
 });
@@ -898,10 +1222,11 @@ addEventListener('keyup', e => {
   if (off.has('left')) keys.l = false;
   if (off.has('right')) keys.r = false;
   if (off.has('burst')) keys.burst = false;
+  if (off.has('brake')) keys.brake = false;
 });
 // Game controllers (js/input/gamepad.js) drive the same keys, polled once per frame
 const padGame = {playing, free:isFree, paused:() => !$('pausebox').hidden, turn:queueTurn, pause:() => togglePause(), camera:cycleCam, skip:trySkip};
-addEventListener('blur', () => { keys.boost = keys.l = keys.r = false; if (state === 'run' && mode === 'solo') togglePause(true); });
+addEventListener('blur', () => { keys.boost = keys.l = keys.r = keys.burst = keys.brake = false; if (state === 'run' && mode === 'solo') togglePause(true); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'run' && mode === 'solo') togglePause(true); });
 $('resumeBtn').addEventListener('click', () => togglePause(false));
 $('quitBtn').addEventListener('click', quit);
@@ -917,6 +1242,7 @@ const steerBtn = (t, on) => { if (isFree()) keys[t < 0 ? 'l' : 'r'] = on; else i
 hold($('tL'), () => { steerBtn(-1, true); trySkip(); }, () => steerBtn(-1, false));
 hold($('tR'), () => { steerBtn(1, true); trySkip(); }, () => steerBtn(1, false));
 hold($('tB'), () => { keys.boost = true; trySkip(); }, () => keys.boost = false);
+hold($('tX'), () => { keys.burst = true; }, () => keys.burst = false);   // circuit: Light Burst
 document.querySelectorAll('[data-mute]').forEach(el => el.addEventListener('click', () => { SFX.init(); SFX.toggle(); }));
 $('camBtn').addEventListener('click', cycleCam);
 // Swipe left / right anywhere on the arena to turn (free mode: snap turn); a plain tap skips while spectating
@@ -969,8 +1295,9 @@ function frame(now){
   if (state === 'countdown') {
     cd -= dt;
     const s = Math.ceil(cd);
-    const how = isFree() ? (coarse ? 'hold ◀ ▶ to steer · swipe to snap' : 'hold arrows to steer · Shift snaps 90°') : (coarse ? 'buttons or swipe' : 'arrows or A / D to turn');
-    if (cd > 0) setMsg(String(s), `Round ${round} · ${how}`);
+    const how = isCircuit() ? (coarse ? 'hold ◀ ▶ to steer · BURST lays a light wall' : 'arrows steer · Shift lays a light wall · ↓ brakes')
+      : isFree() ? (coarse ? 'hold ◀ ▶ to steer · swipe to snap' : 'hold arrows to steer · Shift snaps 90°') : (coarse ? 'buttons or swipe' : 'arrows or A / D to turn');
+    if (cd > 0) setMsg(String(s), isCircuit() ? `${cfg.laps} laps · ${how}` : `Round ${round} · ${how}`);
     else if (mode !== 'guest') { state = 'run'; flash('GO', '', .6); SFX.hit('go'); powerOn(); pushState(); }
     else setMsg('GO', '');
     if (cd > 0 && Math.ceil(cd) !== lastCd) { lastCd = Math.ceil(cd); SFX.hit('tick'); }
@@ -991,10 +1318,12 @@ function frame(now){
   }
   bikes.forEach(b => b.alive ? (isFree() ? placeFree(b, vdt) : placeBike(b, vdt)) : fadeDead(b, dt));
   trails.tick(vdt);
-  if (isFree()) bikes.forEach(freeWalls);
+  if (isCircuit()) bikes.forEach(circuitWalls);
+  else if (isFree()) bikes.forEach(freeWalls);
   bikes.forEach(b => trails.update(b, wx, b.alive ? b.trim : 0, DEATH_WINDOW));
   if (mode !== 'guest') {
-    if (state === 'run') {
+    if (state === 'run' && isCircuit()) circuitRun(dt);
+    else if (state === 'run') {
       const alive = bikes.filter(b => b.alive);
       if (alive.length <= 1) endRound(alive[0] || null);
       else if (!humansAlive()) { spectT += dt; if (spectT > 7) endRound(null); }
@@ -1026,6 +1355,7 @@ function frame(now){
   glowSlots.forEach((g, i) => { const b = bikes[i]; g.on = !!b && b.alive; if (g.on) { g.pos = b.vpos; g.colorHex = b.r.color; } });
   pipe.setGlows(glowSlots);
   arena.update(vdt, glowSlots, camera.position, pipe.particleScale);
+  if (isCircuit() && fw && fw.track) trackView.update(vdt, fw.pk, nowTick(), bikes);
   pipe.render(raw, Math.max(speedK, boosting));
 }
 ['pointerdown', 'keydown'].forEach(t => addEventListener(t, () => SFX.init(), {once:true}));
@@ -1036,12 +1366,16 @@ export const Game = {
   hooks, startSolo, startOnline, toDemo:() => { setMsg('', ''); startDemo(); },
   remoteTurn, remoteBoost, removeRider, applySnapshot, addTurnPoint, remoteInput, addFreePoints,
   initAudio:() => SFX.init(),
+  keys,   // input state other modules (gamepad) may set: l, r, boost, snapQ, burst, brake
   showcase, colourOf,
   setQuality:q => { const l = pipe.setQuality(q); try { localStorage.setItem('pr-quality', l); } catch (e) {} return l; },
   get quality(){ return pipe.quality; },
   debug:() => ({state, round, mode, me, steer:cfg.steer, scores:scores.slice(), bikes:bikes.map(b => ({name:b.name, cx:b.cx, cz:b.cz, dir:b.dir, k:b.k, nt:b.nt, alive:b.alive, segs:b.segs.length,
     ...(b.fr ? {x:+b.pos.x.toFixed(2), z:+b.pos.z.toFixed(2), h:+FS.wrap(b.fr.h).toFixed(3), n:b.fr.n, sx:+b.fr.x.toFixed(2), sz:+b.fr.z.toFixed(2)} : {})})),
-    ...(fw ? {tick:fw.tick, pSeq, wallSegs:fw.S.ax.length} : {})}),
+    ...(fw ? {tick:fw.tick, pSeq, wallSegs:fw.S.ax.length} : {}),
+    ...(isCircuit() && fw && fw.track ? {event:'circuit', laps:cfg.laps, track:fw.track.id, pk:Array.from(fw.pk, v => v > nowTick() ? 1 : 0).join(''), res:raceRes,
+      race:bikes.map(b => b.fr ? {gp:b.fr.gp, lap:FS.lapOf(fw, b.fr), meter:+b.fr.meter.toFixed(3), lay:b.fr.lay, ghost:b.fr.ghostT, phase:b.fr.phaseT, shield:b.fr.shield,
+        done:b.fr.done, place:b.fr.place, best:b.fr.best, prog:+b.fr.prog.toFixed(1), crashes:b.fr.crashes, burstPts:b.wlist ? b.wlist.n : 0} : null)} : {event:cfg.event})}),
   get state(){ return state; },
   get mode(){ return mode; }
 };

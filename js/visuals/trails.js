@@ -1,27 +1,28 @@
 /* Light walls: one shader ribbon per rider plus a soft glow strip on the floor beneath it.
    The ribbon follows the rider's path (any polyline, not just 90 degree corners), starts at the
    craft's tail and is rebuilt into fixed-size buffers each frame: no per-frame allocation.
-   Purely visual: the occupied cells in game.js (grid) or js/sim/free.js stay the source of truth for collisions. */
+   Purely visual: the occupied cells in game.js (grid) or js/sim/free.js stay the source of truth for collisions.
+   Circuit Light Burst walls come in as b.wlist: several separate walls per rider, fading with age. */
 import { VISUAL_CONFIG as VC } from './config.js';
 import { lin } from './renderer.js';
 const THREE = window.THREE;
 const MAX = VC.trail.maxPoints;
 
 const wallVertex = `
-  attribute float aV; attribute float aDist;
+  attribute float aV; attribute float aDist; attribute float aA;
   uniform float uHeight; uniform float uCollapse;
-  varying float vV; varying float vD;
+  varying float vV; varying float vD; varying float vA;
   #include <fog_pars_vertex>
   void main(){
-    vV = aV; vD = aDist;
-    vec3 p = position; p.y = aV * uHeight * (1.0 - uCollapse);
+    vV = aV; vD = aDist; vA = aA;
+    vec3 p = position; p.y = aV * uHeight * (1.0 - uCollapse) * (0.3 + 0.7 * aA);
     vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
   }`;
 const wallFragment = `
   uniform vec3 uColor; uniform float uTime; uniform float uLen; uniform float uFade;
-  varying float vV; varying float vD;
+  varying float vV; varying float vD; varying float vA;
   #include <fog_pars_fragment>
   void main(){
     float body = mix(${VC.trail.bodyBottom.toFixed(3)}, ${VC.trail.bodyTop.toFixed(3)}, vV);
@@ -33,27 +34,27 @@ const wallFragment = `
     // emitted look: hotter right behind the craft's tail
     float tip = 1.0 + ${VC.trail.tipBoost.toFixed(2)} * exp(-max(uLen - vD, 0.0) / ${VC.trail.tipLength.toFixed(2)});
     vec3 c = uColor * (body + band * ${VC.trail.bandIntensity.toFixed(2)}) * shimmer * tip + vec3(1.0) * core * ${VC.trail.whiteCore.toFixed(2)} * tip;
-    gl_FragColor = vec4(c * uFade, 1.0);
+    gl_FragColor = vec4(c * uFade * vA, 1.0);
     #include <fog_fragment>
   }`;
 const glowVertex = `
-  attribute float aS; attribute float aDist;
-  varying float vS; varying float vD;
+  attribute float aS; attribute float aDist; attribute float aA;
+  varying float vS; varying float vD; varying float vA;
   #include <fog_pars_vertex>
   void main(){
-    vS = aS; vD = aDist;
+    vS = aS; vD = aDist; vA = aA;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
   }`;
 const glowFragment = `
   uniform vec3 uColor; uniform float uLen; uniform float uFade;
-  varying float vS; varying float vD;
+  varying float vS; varying float vD; varying float vA;
   #include <fog_pars_fragment>
   void main(){
     float s = 1.0 - abs(vS);
     float tip = 1.0 + 1.2 * exp(-max(uLen - vD, 0.0) / 2.0);
-    gl_FragColor = vec4(uColor * s * s * ${VC.trail.glowIntensity.toFixed(2)} * tip * uFade, 1.0);
+    gl_FragColor = vec4(uColor * s * s * ${VC.trail.glowIntensity.toFixed(2)} * tip * uFade * vA, 1.0);
     #include <fog_fragment>
   }`;
 
@@ -72,6 +73,8 @@ function ribbonGeometry(extra){
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute('aDist', new THREE.BufferAttribute(new Float32Array(MAX * 2), 1).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute(extra.name, new THREE.BufferAttribute(extra.data, 1));
+  // per-vertex intensity: 1 for ordinary walls; circuit burst walls fade with age and use 0 for gaps
+  g.setAttribute('aA', new THREE.BufferAttribute(new Float32Array(MAX * 2).fill(1), 1).setUsage(THREE.DynamicDrawUsage));
   g.setIndex(new THREE.BufferAttribute(INDEX, 1));
   g.setDrawRange(0, 0);
   return g;
@@ -79,8 +82,8 @@ function ribbonGeometry(extra){
 
 export function createTrails(scene){
   const time = {value:0};
-  // Scratch polyline, reused every frame
-  const PX = new Float32Array(MAX), PZ = new Float32Array(MAX), PD = new Float32Array(MAX);
+  // Scratch polyline, reused every frame (PA: per-point intensity)
+  const PX = new Float32Array(MAX), PZ = new Float32Array(MAX), PD = new Float32Array(MAX), PA = new Float32Array(MAX);
 
   function add(b){
     const color = lin(b.r.color);
@@ -140,12 +143,25 @@ export function createTrails(scene){
     b.trail = null;
   }
 
-  /* Rebuild one rider's ribbon (grid: b.segs, free steering: b.wpts). wx: cell -> world. trim: cells hidden behind the head (the craft
+  /* Circuit burst walls arrive ready-made as b.wlist = {x, z, a, n, live}: world points with a
+     per-point intensity (age fade; 0 around the gaps between separate walls). live: the last point
+     is the craft's head (trimmed like any wall); otherwise the list ends where that wall ended. */
+  function burstLine(b){
+    const L = b.wlist, n = Math.min(L.n, MAX);
+    PX.set(L.x.subarray(0, n)); PZ.set(L.z.subarray(0, n)); PA.set(L.a.subarray(0, n));
+    return n;
+  }
+
+  /* Rebuild one rider's ribbon (grid: b.segs, free steering: b.wpts, circuit: b.wlist). wx: cell -> world. trim: cells hidden behind the head (the craft
      covers them). deathWindow: seconds a dead rider's wall stays before its cells clear. */
   function update(b, wx, trim, deathWindow){
     const t = b.trail; if (!t) return;
     let n = 0;
-    if (b.wpts) {
+    const burst = !!b.wlist;
+    if (burst) {
+      if (!(n = burstLine(b))) { t.wall.visible = t.glow.visible = false; return; }
+      if (!b.wlist.live) trim = 0;
+    } else if (b.wpts) {
       // Free steering: dense world-space polyline (see freeLine)
       if (b.cleared || !(n = freeLine(t, b))) { t.wall.visible = t.glow.visible = false; return; }
     } else {
@@ -156,7 +172,7 @@ export function createTrails(scene){
     }
     // Trim from the head end
     let remain = trim;
-    while (n >= 2 && remain > 0) {
+    while (n >= 2 && remain > 0 && !(burst && PA[n - 2] === 0)) {   // a burst trim stops at the gap before the live wall
       const dx = PX[n - 1] - PX[n - 2], dz = PZ[n - 1] - PZ[n - 2], len = Math.hypot(dx, dz);
       if (len <= remain) { remain -= len; n--; }
       else { const k = (len - remain) / len; PX[n - 1] = PX[n - 2] + dx * k; PZ[n - 1] = PZ[n - 2] + dz * k; remain = 0; }
@@ -167,6 +183,13 @@ export function createTrails(scene){
 
     const wp = t.wall.geometry.attributes.position.array, wd = t.wall.geometry.attributes.aDist.array;
     const gp = t.glow.geometry.attributes.position.array, gd = t.glow.geometry.attributes.aDist.array;
+    if (burst || t.aDirty) {
+      const wa = t.wall.geometry.attributes.aA, ga = t.glow.geometry.attributes.aA;
+      for (let i = 0; i < n; i++) wa.array[2 * i] = wa.array[2 * i + 1] = ga.array[2 * i] = ga.array[2 * i + 1] = burst ? PA[i] : 1;
+      if (!burst) { wa.array.fill(1); ga.array.fill(1); }
+      wa.needsUpdate = ga.needsUpdate = true;
+      t.aDirty = burst;
+    }
     const half = VC.trail.glowWidth / 2;
     for (let i = 0; i < n; i++) {
       const j = i * 6, d = i * 2;
@@ -190,7 +213,13 @@ export function createTrails(scene){
       g.attributes.position.updateRange.count = n * 6; g.attributes.aDist.updateRange.count = n * 2;
       g.setDrawRange(0, (n - 1) * 6);
       m.visible = true;
-      m.material.uniforms.uLen.value = b.alive ? PD[n - 1] : -1e3;   // no hot tip once dead
+      m.material.uniforms.uLen.value = b.alive && (!burst || b.wlist.live) ? PD[n - 1] : -1e3;   // no hot tip once dead
+    }
+    if (burst) {
+      // burst walls fade per point with age; dying riders don't fold them away
+      t.wall.material.uniforms.uCollapse.value = 0;
+      t.wall.material.uniforms.uFade.value = t.glow.material.uniforms.uFade.value = 1;
+      return;
     }
     // Crash: hold, then collapse downward and fade in the last part of the death window
     const C = VC.trail.collapse;

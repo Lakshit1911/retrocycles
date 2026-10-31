@@ -18,11 +18,11 @@ const FULL = 0.9;                  // stick deflection that counts as full lock
 const PWM_MS = 100;                // free steering duty-cycle period (6 sim ticks at 60 Hz)
 const FLICK_ON = 0.6, FLICK_OFF = 0.35, TRIGGER = 0.3, NAV_ON = 0.55;
 const REPEAT_FIRST = 380, REPEAT_NEXT = 140;
-const HELD = ['l', 'r', 'boost', 'burst'];
+const HELD = ['l', 'r', 'boost', 'burst', 'brake'];
 
 const W = typeof window !== 'undefined' ? window : null;
 const doc = () => (W ? W.document : null);
-let held = {l:false, r:false, boost:false, burst:false};
+let held = {l:false, r:false, boost:false, burst:false, brake:false};
 let prev = [];                      // merged button state last frame
 let suppress = new Set();           // buttons held through a context switch: ignored until released
 let context = 'none', flick = 0, nav = {dir:'', next:0};
@@ -115,6 +115,7 @@ function race(keys, game, s, pressed){
   if (boost && !held.boost) game.skip();
   setHeld(keys, 'boost', boost);
   setHeld(keys, 'burst', isDown(s, BTN.X));
+  setHeld(keys, 'brake', isDown(s, BTN.LT));   // Circuit mode
   if (pressed(BTN.LB)) game.turn(-1);
   if (pressed(BTN.RB)) game.turn(1);
   if (pressed(BTN.START)) game.pause();

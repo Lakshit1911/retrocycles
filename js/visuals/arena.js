@@ -17,6 +17,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 export function createArena(scene, N){
   const A = VC.arena, H = N / 2, disposables = [];
   const keep = o => { disposables.push(o); return o; };
+  const arenaOnly = [];   // floor panels, grid, perimeter, seam pulses: hidden on a circuit (setCircuit)
 
   /* ---------- Floor ---------- */
   // Outer floor fades into the fog; the arena floor carries panel seams and gloss variation.
@@ -42,7 +43,7 @@ export function createArena(scene, N){
   seamTex.repeat.set(N / panel, N / panel);
   const floor = new THREE.Mesh(keep(new THREE.PlaneGeometry(N, N)), keep(new THREE.MeshStandardMaterial({
     map:seamTex, roughnessMap:roughTex, color:0xffffff, metalness:A.floor.metalness, roughness:1, envMapIntensity:A.floor.env})));
-  floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+  floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor); arenaOnly.push(floor);
   // r128 shares one UV transform across maps, so sample the gloss map at a quarter of the seam
   // tiling and remap it to the configured roughness range
   floor.material.onBeforeCompile = sh => {
@@ -61,8 +62,7 @@ export function createArena(scene, N){
     const l = new THREE.LineSegments(g, keep(new THREE.LineBasicMaterial({color:lin(color), transparent:true, opacity, depthWrite:false})));
     l.position.y = y; scene.add(l); return l;
   };
-  lines(gridPos, A.grid.line, A.grid.opacity, 0.004);
-  lines(majorPos, A.grid.major, A.grid.opacity, 0.006);
+  arenaOnly.push(lines(gridPos, A.grid.line, A.grid.opacity, 0.004), lines(majorPos, A.grid.major, A.grid.opacity, 0.006));
 
   /* ---------- Perimeter walls ---------- */
   const W = A.wall, wallMat = keep(new THREE.MeshStandardMaterial({color:lin(W.color), metalness:.6, roughness:.75, envMapIntensity:.4}));
@@ -98,7 +98,7 @@ export function createArena(scene, N){
   const edgeGeo = keep(new THREE.BoxGeometry(N + W.thickness * 2, .05, .05));
   const rippleGeo = keep(new THREE.PlaneGeometry(N, W.height));
   walls.forEach(w => {
-    const grp = new THREE.Group(); grp.position.set(w.x, 0, w.z); grp.rotation.y = w.ry; scene.add(grp);
+    const grp = new THREE.Group(); grp.position.set(w.x, 0, w.z); grp.rotation.y = w.ry; scene.add(grp); arenaOnly.push(grp);
     const body = new THREE.Mesh(wallGeo, wallMat); body.position.set(0, W.height / 2, -W.thickness / 2); body.receiveShadow = true; grp.add(body);
     const edge = new THREE.Mesh(edgeGeo, edgeMat); edge.position.set(0, W.height + .02, -.02); grp.add(edge);
     w.mat = rippleMat.clone(); keep(w.mat);
@@ -196,7 +196,7 @@ export function createArena(scene, N){
   const pulseGeo = keep(new THREE.PlaneGeometry(P.length, P.width)); pulseGeo.rotateX(-Math.PI / 2);
   const pulses = Array.from({length:P.count}, () => {
     const m = new THREE.Mesh(pulseGeo, keep(new THREE.MeshBasicMaterial({map:pulseTex, color:lin(P.color), transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, toneMapped:false})));
-    m.position.y = .008; m.userData = {t:0, life:0, wait:rand(0, P.gap)}; scene.add(m); return m;
+    m.position.y = .008; m.userData = {t:0, life:0, wait:rand(0, P.gap)}; scene.add(m); arenaOnly.push(m); return m;
   });
   function spawnPulse(m){
     const seam = (Math.floor(rand(1, N / panel)) * panel) - H, alongX = Math.random() < .5, dir = Math.random() < .5 ? 1 : -1;
@@ -210,7 +210,7 @@ export function createArena(scene, N){
   function update(dt, riders, camPos, particleScale){
     time += dt;
     // Perimeter ripples: each rider within reach lights the wall nearest to it
-    walls.forEach(w => {
+    if (!circuit) walls.forEach(w => {
       const P4 = w.mat.uniforms.uP.value, C = w.mat.uniforms.uC.value;
       w.mat.uniforms.uTime.value = time;
       for (let i = 0; i < 6; i++) {
@@ -241,7 +241,7 @@ export function createArena(scene, N){
     dustGeo.attributes.position.needsUpdate = true;
 
     // Occasional slow light pulses along the panel seams
-    pulses.forEach(m => {
+    if (!circuit) pulses.forEach(m => {
       const u = m.userData;
       if (u.life <= 0) { u.wait -= dt; m.material.opacity = 0; if (u.wait <= 0) spawnPulse(m); return; }
       u.t += dt;
@@ -253,5 +253,9 @@ export function createArena(scene, N){
     });
   }
 
-  return {update, floor, dispose:() => disposables.forEach(d => d.dispose && d.dispose())};
+  let circuit = false;
+  // Circuit mode: the track brings its own road and barriers; keep the sky, skyline, beams and dust
+  function setCircuit(on){ circuit = !!on; arenaOnly.forEach(o => { o.visible = !circuit; }); }
+
+  return {update, floor, setCircuit, dispose:() => disposables.forEach(d => d.dispose && d.dispose())};
 }

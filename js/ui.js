@@ -41,7 +41,7 @@ const backFromGoogle = (() => {
 })();
 let pendingJoin = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 
-let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson', steer:'free'};
+let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson', steer:'free', event:'arena', laps:3};
 try { const s = JSON.parse(localStorage.getItem('rc3d-settings') || 'null'); if (s) settings = Object.assign(settings, s); } catch (e) {}
 const save = () => { try { localStorage.setItem('rc3d-settings', JSON.stringify(settings)); } catch (e) {} };
 const myName = () => (profile && profile.name) || (user && user.displayName) || 'YOU';
@@ -245,20 +245,31 @@ function renderSettings(){
     $('botsHint').textContent = 'Bots sharing the arena';
   }
   $('botsVal').textContent = bots;
+  // Event: guests see the host's pick (a room without one is the arena). Circuit races are always
+  // free steering and run a number of laps instead of rounds.
+  const event = (view ? c.event : settings.event) === 'circuit' ? 'circuit' : 'arena', circuit = event === 'circuit';
+  const laps = [3, 5, 7].includes(+(view ? c.laps : settings.laps)) ? +(view ? c.laps : settings.laps) : 3;
+  qa('#eventSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.e === event)));
+  qa('#lapsSeg button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.l === laps)));
+  $('eventHint').textContent = circuit ? 'Laps of the Main Stadium · Light Burst walls, pickups' : 'Last rider standing in the arena';
+  $('steerRow').hidden = circuit; $('winRow').hidden = circuit; $('lapsRow').hidden = !circuit;
+  $('kBurst').hidden = !circuit; $('kBrake').hidden = !circuit;
+  $('kCharge').textContent = circuit ? 'draft a rival · boost cells' : 'ride beside a wall';
+  if (!lobby) $('botsHint').textContent = circuit ? 'AI racers on the grid' : 'Bots sharing the arena';
   // Steering: guests see the host's pick (a room without one predates free steering: grid)
-  const steer = view ? (c.steer === 'free' ? 'free' : 'grid') : settings.steer === 'grid' ? 'grid' : 'free', free = steer === 'free';
+  const steer = circuit ? 'free' : view ? (c.steer === 'free' ? 'free' : 'grid') : settings.steer === 'grid' ? 'grid' : 'free', free = steer === 'free';
   qa('#steerSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.s === steer)));
   $('steerHint').textContent = free ? 'Hold to carve, Shift or swipe to snap 90°' : 'Classic: every press turns 90°';
   $('kTurn').textContent = free ? 'Steer (hold)' : 'Turn 90°';
-  $('kSnap').hidden = !free;
-  $('kPhone').textContent = free ? 'hold ◀ ▶ to steer · swipe to snap' : 'buttons or swipe';
+  $('kSnap').hidden = !free || circuit;
+  $('kPhone').textContent = circuit ? 'hold ◀ ▶ to steer · BURST button' : free ? 'hold ◀ ▶ to steer · swipe to snap' : 'buttons or swipe';
   qa('#diffSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.d === diff)));
   qa('#winSeg button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.w === win)));
   qa('#qualitySeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === Game.quality)));
   $('diffHint').textContent = DIFF[diff].hint;
   $('settingsBlock').classList.toggle('locked', !!view);
 }
-const cfgOut = () => ({bots:settings.obots, diff:settings.diff, win:settings.win, steer:settings.steer});
+const cfgOut = () => ({bots:settings.obots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps});
 function changed(){
   save(); renderSettings();
   if (screen === 'lobby' && room && room.isHost) { room.setCfg(cfgOut()); renderLobby(); }
@@ -273,6 +284,8 @@ $('botsPlus').addEventListener('click', () => stepBots(1));
 qa('#diffSeg button').forEach(b => b.addEventListener('click', () => { settings.diff = b.dataset.d; changed(); }));
 qa('#winSeg button').forEach(b => b.addEventListener('click', () => { settings.win = +b.dataset.w; changed(); }));
 qa('#steerSeg button').forEach(b => b.addEventListener('click', () => { settings.steer = b.dataset.s; changed(); }));
+qa('#eventSeg button').forEach(b => b.addEventListener('click', () => { settings.event = b.dataset.e; changed(); }));
+qa('#lapsSeg button').forEach(b => b.addEventListener('click', () => { settings.laps = +b.dataset.l; changed(); }));
 // Graphics quality is per device, so it never goes into the room settings
 qa('#qualitySeg button').forEach(b => b.addEventListener('click', () => { Game.setQuality(b.dataset.q); renderSettings(); }));
 // Master volume (per device), alongside the SOUND mute button
@@ -297,13 +310,29 @@ Game.hooks.quality = (q, auto) => {
 /* ---------- Solo ---------- */
 $('ride').addEventListener('click', () => {
   save(); keepAwake(true); ratedRoster = null;
-  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, steer:settings.steer, name:myName(), color:myColor()});
+  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, name:myName(), color:myColor()});
 });
 
 /* ---------- Match end / quit ---------- */
 const WIN_QUIPS = ['Ghosted the competition.', 'Light work. Literally.', 'Wall-to-wall victory.', 'A phantom finish. They never saw you coming.'];
 const LOSS_QUIPS = ['Rebooting pride.exe…', 'Every wall is a lesson. Some are just very bright.', 'Close call. The grid remembers.', 'Hit a wall? Happens to the best of us.'];
+// Circuit results: finishing order with total and best-lap times
+const fmtTime = t => { if (t == null) return '–'; const m = Math.floor(t / 60), sec = t - m * 60; return `${m}:${sec.toFixed(3).padStart(6, '0')}`; };
+function circuitRows(s){
+  const lead = s.table[0] && s.table[0].total;
+  return `<div class="rows circuit-rows">${s.table.map((r, i) => `<div class="${r.me ? 'me' : ''}"><em class="num">P${r.place}</em><i style="background:${r.css}"></i><span>${esc(r.name)}${r.bot ? ' · AI' : ''}${r.me ? ' · you' : ''}</span>`
+    + `<small class="num">best ${fmtTime(r.best)}</small><b class="num">${r.total != null ? (i && lead != null ? '+' + (r.total - lead).toFixed(3) : fmtTime(r.total)) : `${r.laps} / ${s.laps} laps`}</b></div>`).join('')}</div>`;
+}
 function showResult(s){
+  if (s.event === 'circuit') {
+    $('result').innerHTML = `<div class="tag eyebrow">${s.online ? 'Online' : 'Solo'} race · ${esc(s.track || 'Circuit')} · ${s.laps} laps</div>
+      <h3>${esc(s.won ? 'YOU TAKE THE FLAG' : s.winner ? `${s.winner} TAKES THE FLAG` : 'RACE OVER')}</h3>
+      ${circuitRows(s)}
+      <div class="rating-line" id="ratingLine">${user ? '<span class="tag">Rating</span><span class="hint">Updating…</span>' : '<span class="hint">Guest ride · sign in to earn a skill rating and your signature light</span>'}</div>`;
+    $('result').style.setProperty('--win', s.winnerCss);
+    $('result').hidden = false;
+    return;
+  }
   const title = s.won ? 'YOU OWN THE GRID' : s.winner ? `${s.winner} OWNS THE GRID` : 'MATCH OVER';
   $('result').innerHTML = `<div class="tag eyebrow">${s.online ? 'Online' : 'Solo'} match · ${s.rounds} rounds</div>
     <h3>${esc(title)}</h3><div class="hint">${pick(s.won ? WIN_QUIPS : LOSS_QUIPS)}</div>
@@ -432,7 +461,7 @@ function tryBegin(){
   const roster = st.roster || [], me = roster.findIndex(p => p.uid === user.uid);
   if (me < 0) { toast('A match started without you. You are in for the next one.'); return; }
   inMatch = true; keepAwake(true); primeRatings(roster);
-  Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, steer:st.steer, id:st.id,
+  Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, steer:st.steer, event:st.event, laps:st.laps, track:st.track, id:st.id,
     net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b), input:(r, q, s) => room.sendInputs(r, q, s)}});
   room.listenMatch(Game.applySnapshot, Game.addTurnPoint, Game.addFreePoints);
 }
@@ -444,13 +473,13 @@ async function hostStart(){
     ...players.map((p, i) => ({name:p.name, uid:p.uid, bot:false, color:col.players[i]})),
     ...Array.from({length:bots}, (_, j) => ({name:RIDERS[players.length + j].name, uid:'', bot:true, color:col.bots[j]}))
   ];
-  const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win, steer:settings.steer};
+  const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps};
   await busy($('startMatch'), async () => {
     try { await room.begin(start); }
     catch (e) { toast('Could not start: ' + e.message); return; }
     lastStart = start.id; inMatch = true; matchRoster = roster; gone = new Set(); keepAwake(true); primeRatings(roster);
     room.listenInputs(roster, Game.remoteTurn, Game.remoteBoost, Game.remoteInput);
-    Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, steer:settings.steer, id:start.id,
+    Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, id:start.id,
       net:{state:s => room.sendState(s), turn:(r, i, n, x, z) => room.logTurn(r, i, n, x, z), points:(r, q, p) => room.logPoints(r, q, p)}});
   });
 }
