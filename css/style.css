@@ -75,6 +75,9 @@ button:focus-visible,input:focus-visible{outline:1px solid var(--accent);outline
 .meter{height:3px;border-radius:2px;background:var(--line);position:relative;overflow:hidden}
 #nrg{position:absolute;inset:0 auto 0 0;width:35%;background:var(--accent);box-shadow:0 0 10px var(--accent);border-radius:2px}
 .meter-row{display:flex;justify-content:space-between;gap:8px}
+#netTag{color:var(--faint)}
+#netTag.on{color:var(--dim)}
+#netTag.on::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;margin-right:6px;vertical-align:middle;background:#8cff2e;box-shadow:0 0 6px #8cff2e}
 #slip{transition:color .15s}
 #slip.on{color:var(--accent)}
 .hints{text-align:right;line-height:2}

@@ -466,7 +466,7 @@ function tryBegin(){
   if (me < 0) { toast('A match started without you. You are in for the next one.'); return; }
   inMatch = true; keepAwake(true); primeRatings(roster);
   Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, steer:st.steer, event:st.event, laps:st.laps, track:st.track, id:st.id,
-    net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b), input:(r, q, s) => room.sendInputs(r, q, s)}});
+    net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b), input:(r, q, s) => room.sendInputs(r, q, s), get fast(){ return !!room && room.fast; }}});
   room.listenMatch(Game.applySnapshot, Game.addTurnPoint, Game.addFreePoints);
 }
 async function hostStart(){
@@ -484,10 +484,18 @@ async function hostStart(){
     lastStart = start.id; inMatch = true; matchRoster = roster; gone = new Set(); keepAwake(true); primeRatings(roster);
     room.listenInputs(roster, Game.remoteTurn, Game.remoteBoost, Game.remoteInput);
     Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, id:start.id,
-      net:{state:s => room.sendState(s), turn:(r, i, n, x, z) => room.logTurn(r, i, n, x, z), points:(r, q, p) => room.logPoints(r, q, p)}});
+      net:{state:s => room.sendState(s), turn:(r, i, n, x, z) => room.logTurn(r, i, n, x, z), points:(r, q, p) => room.logPoints(r, q, p), get fast(){ return !!room && room.fast; }}});
   });
 }
 $('startMatch').addEventListener('click', hostStart);
+/* Link readout in the race HUD: DIRECT (peer to peer) with its round trip, or RELAY (through the database) */
+setInterval(() => {
+  const el = $('netTag'); if (!el) return;
+  if (!room || !inMatch) { el.hidden = true; return; }
+  const i = room.linkInfo(); el.hidden = false;
+  el.textContent = i.p2p ? `Direct link · ${i.rtt ? i.rtt + ' ms' : '…'}` : i.total ? (i.up ? `Direct ${i.up}/${i.total} · relay for the rest` : 'Relay · linking…') : 'Relay';
+  el.classList.toggle('on', i.p2p);
+}, 1000);
 async function leaveRoom(){
   if (!room) return;
   const r = room; room = null; inMatch = false; matchRoster = null;

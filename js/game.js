@@ -44,7 +44,7 @@ const SNAP_DT = 1 / 20, REWIND = 6, GRACE = .2, HIST = 8;
    correction is eased out over ~1/LAG_EASE s instead of jumping (more than LAG_MAX cells snaps), and
    other riders are drawn REMOTE_DELAY s behind their newest known position, so a turn that arrives
    late still lands ahead of where they are drawn and they round the corner instead of jumping back. */
-const LAG_EASE = 7, LAG_MAX = 4, REMOTE_DELAY = .1;
+const LAG_EASE = 7, LAG_MAX = 4, REMOTE_DELAY = .1, REMOTE_DELAY_P2P = .04;   // shorter on a direct link: updates arrive steadily
 const TURN_NOW = .5;   // grid, host / solo: a turn pressed this far into a cell (0..1) still happens in it
 const DIRS = [[1,0],[0,1],[-1,0],[0,-1]];
 export const RIDERS = ['YOU', 'KESTREL', 'JUNO', 'RIVET', 'ORCA', 'SABLE']
@@ -222,7 +222,7 @@ function placeBike(b, dt){
   // Visual layer: the craft rides the path a little behind the head, eased and banked through turns
   const moving = state === 'run' || state === 'over' || state === 'demo';
   // b.lag (guests): cells the drawn craft trails its logical head while a snapshot correction eases out
-  const lagTo = mode === 'guest' && b !== player && b.alive && (state === 'run' || state === 'over') ? REMOTE_DELAY * BASE * b.mul : 0;
+  const lagTo = mode === 'guest' && b !== player && b.alive && (state === 'run' || state === 'over') ? (net && net.fast ? REMOTE_DELAY_P2P : REMOTE_DELAY) * BASE * b.mul : 0;
   if (b.lag || lagTo) { b.lag = lagTo + ((b.lag || 0) - lagTo) * Math.exp(-dt * LAG_EASE); if (!lagTo && Math.abs(b.lag) < .005) b.lag = 0; }
   const lag = b.lag || 0;
   pathPoint(b, VC.vehicle.originBehindHead + lag, b.vpos);
@@ -516,7 +516,7 @@ function syncSegs(b){
    replays the inputs after the ack. Walls stream as appended points (fp); everyone else is drawn
    INTERP ticks behind the newest snapshot, interpolated. */
 let fw = null;                                        // this round's world
-const FDT = FS.DT, INTERP = 6;                        // 6 ticks = 100 ms
+const FDT = FS.DT, INTERP = 6, INTERP_P2P = 4;       // 6 ticks = 100 ms behind (relay); 67 ms on a direct link
 let fpSeq = 0, fpLog = {}, fsnaps = [], fclk = null;  // host: wall chunk counter. guest: chunks by round, snapshots, clock offset (ms)
 let pSeq = -1, pOut = '', pOutQ = 0, pOutT = 0;       // guest: newest input number, unsent batch (first number, age)
 const phist = new Array(256), tailBuf = new Float32Array(128);   // guest: {input, predicted x, z} per tick
@@ -733,11 +733,11 @@ function freeGuestFrame(dt){
       if (inp.snap) pOutT = 1;   // send snap turns right away
     }
     pOutT += dt;
-    if (pOut && pOutT >= .05) { net.input(round, pOutQ, pOut); pOut = ''; pOutT = 0; }
+    if (pOut && pOutT >= (net.fast ? .017 : .05)) { net.input(round, pOutQ, pOut); pOut = ''; pOutT = 0; }   // direct link: send every tick
     player.mul = r.mul; player.energy = r.energy; player.grind = r.grind;
   }
   const k = Math.exp(-dt * 8); player.ex *= k; player.ez *= k;
-  const tick = fclk === null ? -1 : (performance.now() - fclk) * 60 / 1000 - INTERP;
+  const tick = fclk === null ? -1 : (performance.now() - fclk) * 60 / 1000 - (net && net.fast ? INTERP_P2P : INTERP);
   for (const b of bikes) if (b !== player && b.alive && b.ip) interp(b, tick);
 }
 // Another rider, drawn at host tick `tick`: between the two snapshots around it, or a short extrapolation
