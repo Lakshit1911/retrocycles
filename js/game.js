@@ -39,14 +39,21 @@ import { pollGamepad } from './input/gamepad.js';            // game controllers
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const N = 128, H = N / 2, BASE = 15, DEATH_WINDOW = 1.4;
-const SNAP_DT = 1 / 15, REWIND = 6, GRACE = .2, HIST = 8;
+const SNAP_DT = 1 / 20, REWIND = 6, GRACE = .2, HIST = 8;
+/* Guests (grid): b.lag = cells the drawn craft trails its logical head along its path. A snapshot's
+   correction is eased out over ~1/LAG_EASE s instead of jumping (more than LAG_MAX cells snaps), and
+   other riders are drawn REMOTE_DELAY s behind their newest known position, so a turn that arrives
+   late still lands ahead of where they are drawn and they round the corner instead of jumping back. */
+const LAG_EASE = 7, LAG_MAX = 4, REMOTE_DELAY = .1;
 const DIRS = [[1,0],[0,1],[-1,0],[0,-1]];
 export const RIDERS = ['YOU', 'KESTREL', 'JUNO', 'RIVET', 'ORCA', 'SABLE']
   .map((name, i) => ({name, color:VC.riders[i].hex, css:VC.riders[i].css}));
 export const DIFF = {
-  rookie:{react:[1,3], bfs:40,  noise:.4,  turn:.012, hunt:0,   boost:.15, hint:'Reacts late and is easy to trap'},
-  rider: {react:[3,6], bfs:180, noise:.15, turn:.02,  hunt:.35, boost:.5,  hint:'Reads the arena and hunts you now and then'},
-  legend:{react:[5,9], bfs:480, noise:.04, turn:.025, hunt:.8,  boost:.9,  hint:'Plans ahead and cuts across your path'}
+  // react: cells ahead it starts looking for a turn; bfs: how much space it checks before picking a side;
+  // noise: how fuzzy that judgement is; slip (grid): chance per cell of not noticing the wall ahead yet
+  rookie:{react:[1,2.6], bfs:26, noise:.55, turn:.01,  hunt:0,   boost:.1,  slip:.22, hint:'Reacts late, misjudges space and is easy to trap'},
+  rider: {react:[3,6],   bfs:180, noise:.15, turn:.02,  hunt:.35, boost:.5,  slip:0,   hint:'Reads the arena and hunts you now and then'},
+  legend:{react:[5,9],   bfs:480, noise:.04, turn:.025, hunt:.8,  boost:.9,  slip:0,   hint:'Plans ahead and cuts across your path'}
 };
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let coarse = matchMedia('(pointer: coarse)').matches;
@@ -194,7 +201,7 @@ function resetRound(){
     const vx = H - b.cx, vz = H - b.cz; let best = 0, bd = -1e9;
     DIRS.forEach(([dx, dz], d) => { const s = dx * vx + dz * vz; if (s > bd) { bd = s; best = d; } });
     Object.assign(b, {dir:best, p:0, mul:1, energy:.35, grind:0, queue:[], sched:[], local:[], gq:[], alive:!b.gone, deathT:0, cleared:b.gone,
-      wantBoost:false, react:2, k:0, nt:0, grace:0, lastTurnK:-1});
+      wantBoost:false, react:2, k:0, nt:0, grace:0, lastTurnK:-1, lag:0});
     b.hist[0] = b.cx; b.hist[1] = b.cz;
     resetPose(b, headingOf(best));
     revive(b);
@@ -213,12 +220,16 @@ function placeBike(b, dt){
   b.pos.set(wx(b.cx) + dx * b.p, 0, wx(b.cz) + dz * b.p);
   // Visual layer: the craft rides the path a little behind the head, eased and banked through turns
   const moving = state === 'run' || state === 'over' || state === 'demo';
-  pathPoint(b, VC.vehicle.originBehindHead, b.vpos);
+  // b.lag (guests): cells the drawn craft trails its logical head while a snapshot correction eases out
+  const lagTo = mode === 'guest' && b !== player && b.alive && (state === 'run' || state === 'over') ? REMOTE_DELAY * BASE * b.mul : 0;
+  if (b.lag || lagTo) { b.lag = lagTo + ((b.lag || 0) - lagTo) * Math.exp(-dt * LAG_EASE); if (!lagTo && Math.abs(b.lag) < .005) b.lag = 0; }
+  const lag = b.lag || 0;
+  pathPoint(b, VC.vehicle.originBehindHead + lag, b.vpos);
   b.powerT = Math.max(0, (b.powerT || 0) - dt);
   b.visualSpeed = (moving ? BASE * b.mul / VC.vehicle.scale : 0) + VC.effects.powerOn.speed * (b.powerT / VC.effects.powerOn.duration);
   b.particleScale = pipe.particleScale;
   updatePose(b, dt, b.vpos, headingOf(b.dir), b.visualSpeed);
-  b.trim = VC.vehicle.originBehindHead + b.mesh.tail;   // the wall appears to leave the craft's tail
+  b.trim = VC.vehicle.originBehindHead + b.mesh.tail + lag;   // the wall appears to leave the craft's tail
 }
 
 function turn(b, t){
@@ -274,7 +285,8 @@ function think(b){
     const tx = prey.cx + pdx * 10 - b.cx, tz = prey.cz + pdz * 10 - b.cz;
     if (Math.abs(tx) + Math.abs(tz) < 34) huntDir = Math.abs(tx) > Math.abs(tz) ? (tx > 0 ? 0 : 2) : (tz > 0 ? 1 : 3);
   }
-  const consider = ahead <= b.react || Math.random() < D.turn || (huntDir >= 0 && huntDir !== b.dir);
+  const sees = ahead <= b.react && !(D.slip && ahead > 0 && Math.random() < D.slip);   // a rookie can notice a wall a cell late
+  const consider = sees || Math.random() < D.turn || (huntDir >= 0 && huntDir !== b.dir);
   if (consider) {
     let best = null;
     for (const t of [0, 1, 3]) {
@@ -402,7 +414,7 @@ function guestRound(st){
   st.b.forEach((a, i) => {
     const b = bikes[i]; if (!b) return;
     Object.assign(b, {cx:a[0], cz:a[1], dir:a[2], p:a[3] / 100, mul:a[4] / 100, alive:!!a[5], energy:a[6] / 100, grind:a[7] ? .22 : 0,
-      k:a[8], nt:a[9], spawn:{x:a[0], z:a[1]}, local:[], gq:[], lastLocalK:-1, snapT:0, deathT:0, cleared:!a[5]});
+      k:a[8], nt:a[9], spawn:{x:a[0], z:a[1]}, local:[], gq:[], lastLocalK:-1, snapT:0, deathT:0, cleared:!a[5], lag:0});
     resetPose(b, headingOf(a[2]));
     revive(b);
     if (!b.alive) return;
@@ -433,7 +445,10 @@ function applySnapshot(st){
     // Keep our own predicted turn until the host confirms it (or it times out)
     if (b === player && (b.local.length || b.gq.length) && now - b.localT < 900) { b.snapT = 0; return; }
     if (b === player) { b.local.length = 0; b.gq.length = 0; }
+    // Ease the correction: along the same line the craft keeps drawing where it was and catches up
+    const ox = b.cx + DIRS[b.dir][0] * b.p, oz = b.cz + DIRS[b.dir][1] * b.p, odir = b.dir;
     b.cx = a[0]; b.cz = a[1]; b.dir = a[2]; b.p = a[3] / 100; b.k = a[8]; b.nt = a[9]; b.snapT = 0;
+    b.lag = carryLag(b, ox, oz, odir);
     const pts = guestPts(b), last = pts[pts.length - 1];
     if (last) raster(b.id, last.x, last.z, b.cx, b.cz);
   });
@@ -444,6 +459,23 @@ function applySnapshot(st){
   }
   if (state === 'countdown') cd = st.cd;
   updateBoard();
+}
+// Keep the drawn craft where it was across a snapshot: the lag that puts it there on the new path
+function carryLag(b, ox, oz, odir){
+  const lag0 = b.lag || 0, [dx, dz] = DIRS[b.dir], nx = b.cx + dx * b.p, nz = b.cz + dz * b.p;
+  let lag;
+  if (odir === b.dir) {
+    if (Math.abs((nx - ox) * dz - (nz - oz) * dx) > .05) return 0;   // moved sideways: not the same line
+    lag = lag0 + (nx - ox) * dx + (nz - oz) * dz;
+  } else {
+    // a turn we hadn't drawn yet: the corner is where the old line meets the new one
+    const [ex, ez] = DIRS[odir];
+    if (ex * dx + ez * dz !== 0) return 0;
+    const cxr = ex ? nx : ox, czr = ex ? oz : nz;
+    const past = (ox - cxr) * ex + (oz - czr) * ez - lag0;   // how far the drawn craft already was beyond the corner
+    lag = Math.abs(nx - cxr) + Math.abs(nz - czr) - Math.min(0, past);
+  }
+  return Math.abs(lag) < LAG_MAX ? lag : 0;
 }
 function guestTurnNow(b, t){
   net.turn(t, b.k, round);
@@ -1299,10 +1331,20 @@ function closePasses(now){
 /* ---------- Loop ---------- */
 let last = performance.now();
 const glowSlots = RIDERS.map(() => ({pos:null, colorHex:0, on:false}));
+let frameAvg = 0, frameDebt = 0;
 function frame(now){
   requestAnimationFrame(frame);
   pollGamepad(keys, padGame);
-  const raw = (now - last) / 1000, real = Math.min(.05, raw); last = now;
+  const raw = (now - last) / 1000; last = now;
+  /* Frame pacing: browsers' frame timestamps wobble even when frames arrive on time, which shows as a
+     fine stutter in motion. Use a smoothed frame time while frames are steady (paying back the
+     difference a little each frame, so no time is lost), and the raw one on a genuine hitch. */
+  let real = Math.min(.05, raw);
+  if (real > 0 && real < .05) {
+    frameAvg = frameAvg ? frameAvg + (real - frameAvg) * .1 : real;
+    if (Math.abs(real - frameAvg) < frameAvg * .35) { frameDebt += real - frameAvg; const pay = frameDebt * .2; frameDebt -= pay; real = frameAvg + pay; }
+    else frameDebt = 0;
+  }
   const dt = paused ? 0 : real;
   // Visual clock: slows briefly after your own crash; the simulation always uses dt
   if (slowT > 0) slowT -= real;

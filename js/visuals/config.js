@@ -64,6 +64,15 @@ export const VISUAL_CONFIG = {
     // Perimeter: matte dark metal, one thin emissive top line, light ripples when riders come near
     wall:{height:3.5, thickness:0.6, color:'#0b0d12', edge:'#c9d3e6', edgeIntensity:1.4,
       rippleReach:7, rippleWidth:30, rippleIntensity:0.55},
+    // 'stadium' (closed bowl, cheap: a few meshes) or 'city' (the open skyline with beams)
+    scenery:'stadium',
+    // Stadium bowl (world units; the circuit reaches ~147 from the centre). Colours are sRGB.
+    stadium:{inner:158, outer:262, front:4.2, standHeight:58, backHeight:72, crown:150,
+      seat:'#0a0c12', row:'#141925', aisle:'#0d1018', concourse:'#1a2131', rows:22, aisles:48, repeat:6,
+      crowd:2600, crowdCool:'#8fa6d6', crowdWarm:'#d9a46a', rim:'#9fb7ff',
+      led:'#9fb7ff', ledWarm:'#ffb36b', ledHeight:1.6, ledRepeat:10, ledIntensity:1.4, ledSpeed:0.004,
+      roof:'#07090f', roofRim:'#0d111b', rib:'#151b28', ribs:40, oculus:'#2a3552', oculusEdge:'#141a2a',
+      flood:'#e8eef8', floods:24, floodGlow:0.05},
     sky:{horizon:'#141a33', silhouette:'#07080d', strip:'#7f98c9', stripWarm:'#c99a6a', stripOpacity:0.5,
       stripChance:0.3, stripThickness:0.14, towerHeight:[16, 80], archRadius:[38, 70],
       beacon:'#ff4a55', towers:70, arches:4, pylons:10, radius:[220, 480],
