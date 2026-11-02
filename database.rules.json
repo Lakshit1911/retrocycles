@@ -68,6 +68,43 @@
         "$other": { ".validate": false }
       }
     },
+    "logs": {
+      ".read": true,
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        "$id": {
+          ".validate": "newData.hasChildren(['t', 'mode', 'ev', 'steer', 'won'])",
+          "t": { ".validate": "newData.isNumber() && newData.val() <= now + 86400000" },
+          "mode": { ".validate": "newData.isString() && newData.val().matches(/^(solo|host|guest)$/)" },
+          "ev": { ".validate": "newData.isString() && newData.val().matches(/^(arena|circuit)$/)" },
+          "steer": { ".validate": "newData.isString() && newData.val().matches(/^(grid|free)$/)" },
+          "diff": { ".validate": "newData.isString() && newData.val().matches(/^(rookie|rider|legend)$/)" },
+          "bots": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
+          "humans": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
+          "win": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 9" },
+          "rounds": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+          "rw": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 9" },
+          "won": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1" },
+          "place": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
+          "craft": { ".validate": "newData.isString() && newData.val().matches(/^(gt|xenoth)$/)" },
+          "dOwn": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+          "dRival": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+          "dWall": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+          "dOther": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 99" },
+          "dur": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 36000" },
+          "fps": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 1000" },
+          "slow": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 100" },
+          "q": { ".validate": "newData.isString() && newData.val().matches(/^(low|medium|high)$/)" },
+          "dpr": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 8" },
+          "gap": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 600000" },
+          "gap95": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 600000" },
+          "rtt": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 600000" },
+          "dev": { ".validate": "newData.isString() && newData.val().matches(/^(mac|ios|win|android|linux|other)$/)" },
+          "br": { ".validate": "newData.isString() && newData.val().matches(/^(chrome|safari|firefox|edge|app|other)$/)" },
+          "$other": { ".validate": false }
+        }
+      }
+    },
     "rooms": {
       "$code": {
         ".read": "auth != null",

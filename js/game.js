@@ -45,6 +45,7 @@ const SNAP_DT = 1 / 20, REWIND = 6, GRACE = .2, HIST = 8;
    other riders are drawn REMOTE_DELAY s behind their newest known position, so a turn that arrives
    late still lands ahead of where they are drawn and they round the corner instead of jumping back. */
 const LAG_EASE = 7, LAG_MAX = 4, REMOTE_DELAY = .1;
+const TURN_NOW = .5;   // grid, host / solo: a turn pressed this far into a cell (0..1) still happens in it
 const DIRS = [[1,0],[0,1],[-1,0],[0,-1]];
 export const RIDERS = ['YOU', 'KESTREL', 'JUNO', 'RIVET', 'ORCA', 'SABLE']
   .map((name, i) => ({name, color:VC.riders[i].hex, css:VC.riders[i].css}));
@@ -306,6 +307,7 @@ function think(b){
 }
 
 function crash(b, by){
+  if (b === player && state === 'run' && ms) ms.d[deathCause(b, by)]++;
   b.alive = false; b.grace = 0; b.mesh.group.visible = false;
   b.trim = 0;   // show the wall right up to the crash point
   fx.crash(b.vpos.x, b.vpos.z, b.r.color, pipe.particleScale);
@@ -406,7 +408,7 @@ function addTurnPoint(r, id, n, x, z){
   if (r !== round) return;
   const b = bikes[id]; if (!b || !b.alive) return;
   if (L[n - 1]) raster(id, L[n - 1].x, L[n - 1].z, x, z);
-  if (b === player && n > 0 && b.local.length) b.local.shift();
+  if (b === player && n > 0 && b.local.length) { const l = b.local.shift(); if (ms && l.at) ms.rtt.push(performance.now() - l.at); }
 }
 function guestRound(st){
   round = st.r; grid.fill(0);
@@ -431,6 +433,7 @@ function guestRound(st){
 }
 function applySnapshot(st){
   if (mode !== 'guest' || !st || st.m !== matchId || !Array.isArray(st.b)) return;
+  statsSnap(performance.now());
   if (Array.isArray(st.sc)) scores = st.sc;
   if (Array.isArray(st.res)) raceRes = st.res;
   if (st.s === 'end') { matchOver(bikes[st.w] || null); return; }
@@ -480,7 +483,7 @@ function carryLag(b, ox, oz, odir){
 function guestTurnNow(b, t){
   net.turn(t, b.k, round);
   b.dir = (b.dir + (t > 0 ? 1 : 3)) % 4;
-  b.local.push({x:b.cx, z:b.cz}); b.localT = performance.now(); b.lastLocalK = b.k;
+  b.local.push({x:b.cx, z:b.cz, at:performance.now()}); b.localT = performance.now(); b.lastLocalK = b.k;
   SFX.whoosh(t > 0 ? 1 : -1);
 }
 // Dead-reckon a bike forward from its last snapshot
@@ -1127,8 +1130,42 @@ function startDemo(){
   state = 'demo'; buildRiders(RIDERS.slice(0, 4).map((r, i) => ({name:r.name, bot:true, color:VC.riders[i].key}))); resetRound(); demoT = 0;
   $('hud').hidden = true; $('touch').hidden = true; $('menu').hidden = false;
 }
+/* ---------- Match log: what ui.js saves per match for progress reports (signed-in riders) ---------- */
+let ms = null;
+function statsReset(){ ms = {t0:performance.now(), d:{own:0, rival:0, wall:0, other:0}, frames:0, ft:0, slow:0, gaps:[], lastSnap:0, rtt:[]}; }
+function deathCause(b, by){
+  if (by !== undefined && by !== null) return by === b.id ? 'own' : by >= 0 ? 'rival' : by === -2 ? 'wall' : 'other';
+  if (isFree()) return 'other';
+  const [dx, dz] = DIRS[b.dir], x = b.cx + dx, z = b.cz + dz;
+  if (x < 0 || z < 0 || x >= N || z >= N) return 'wall';
+  const v = grid[x + z * N]; return v === b.id + 1 ? 'own' : v ? 'rival' : 'other';
+}
+function statsFrame(raw){ if (ms && state === 'run' && raw > 0 && raw < .5) { ms.frames++; ms.ft += raw; if (raw > 1 / 40) ms.slow++; } }
+function statsSnap(now){
+  if (!ms) return;
+  if (ms.lastSnap && state === 'run') { ms.gaps.push(now - ms.lastSnap); if (ms.gaps.length > 6000) ms.gaps.shift(); }
+  ms.lastSnap = now;
+}
+const pct = (a, q) => { if (!a.length) return 0; const b = a.slice().sort((x, y) => x - y); return b[Math.min(b.length - 1, Math.floor(q * b.length))]; };
+function device(){
+  const u = navigator.userAgent || '', app = !!(window.phantomDesktop || window.Capacitor);
+  const dev = /iPhone|iPad/.test(u) || (/Macintosh/.test(u) && navigator.maxTouchPoints > 1) ? 'ios' : /Mac/.test(u) ? 'mac' : /Android/.test(u) ? 'android' : /Win/.test(u) ? 'win' : /Linux/.test(u) ? 'linux' : 'other';
+  const br = app ? 'app' : /Edg\//.test(u) ? 'edge' : /Firefox\//.test(u) ? 'firefox' : /Chrome\//.test(u) ? 'chrome' : /Safari\//.test(u) ? 'safari' : 'other';
+  return {dev, br};
+}
+function statsLog(s){
+  if (!ms) return null;
+  const {dev, br} = device(), fps = ms.ft > 0 ? ms.frames / ms.ft : 0, r1 = v => Math.round(v * 10) / 10;
+  return {t:Date.now(), mode, ev:cfg.event, steer:cfg.steer, diff:cfg.diff, bots:bikes.filter(b => b.ai).length, humans:bikes.filter(b => !b.ai).length,
+    win:cfg.win, rounds:s.rounds | 0, rw:s.roundsWon | 0, won:s.won ? 1 : 0, place:s.table.findIndex(r => r.me) + 1,
+    craft:player.mesh.craft || 'gt', dOwn:ms.d.own, dRival:ms.d.rival, dWall:ms.d.wall, dOther:ms.d.other,
+    dur:Math.round((performance.now() - ms.t0) / 1000), fps:r1(fps), slow:r1(ms.frames ? ms.slow * 100 / ms.frames : 0),
+    q:pipe.quality, dpr:r1(window.devicePixelRatio || 1),
+    gap:Math.round(ms.gaps.length ? ms.gaps.reduce((a, b) => a + b, 0) / ms.gaps.length : 0), gap95:Math.round(pct(ms.gaps, .95)),
+    rtt:Math.round(pct(ms.rtt, .5)), dev, br};
+}
 function begin(){
-  buildBoard();
+  buildBoard(); statsReset();
   document.documentElement.style.setProperty('--accent', player.r.css);   // your colour is the only UI accent
   const c = isCircuit();
   $('winLabel').textContent = c ? `${trackOf(cfg.track).name} · ${cfg.laps} laps` : `First to ${cfg.win} rounds`;
@@ -1192,6 +1229,7 @@ function matchOver(w){
   const summary = {online:mode !== 'solo', host:mode === 'host', won:!!w && w === player, winner:w ? w.name : '', winnerCss:w ? w.r.css : VC.palette.textDim,
     roundsWon:scores[player.id] || 0, rounds:round, diff:cfg.diff,
     table:bikes.map(b => ({name:b.name, css:b.r.css, score:scores[b.id] || 0, me:b === player, bot:b.ai})).sort((a, b) => b.score - a.score)};
+  summary.log = statsLog(summary);   // before startDemo() resets the mode and riders
   if (mode === 'host') { state = 'end'; lastW = w ? w.id : -1; pushState(); }
   SFX.hit(summary.won ? 'win' : 'fall');
   setMsg('', '');
@@ -1207,6 +1245,7 @@ function circuitOver(){
       const b = bikes[id];
       return {name:b.name, css:b.r.css, score:n - place, place, total:total >= 0 ? total / 60 : null, best:best ? best / 60 : null, laps, me:b === player, bot:b.ai};
     })};
+  summary.log = statsLog(summary);   // before startDemo() resets the mode and riders
   if (mode === 'host') { state = 'end'; lastW = w ? w.id : -1; pushState(); }
   SFX.hit(summary.won ? 'win' : 'fall');
   setMsg('', '');
@@ -1238,6 +1277,9 @@ function queueTurn(t){
     else guestTurnNow(player, t);
     return;
   }
+  // Pressed in the first half of a cell: turn in this cell right now rather than at the next one
+  // (the drawn path stays continuous; the next cell is checked as usual when the craft gets there)
+  if (state === 'run' && !player.queue.length && !player.sched.length && player.p < TURN_NOW && player.lastTurnK !== player.k && !player.grace) { turn(player, t); return; }
   if (player.queue.length < 2) player.queue.push(t);
 }
 function trySkip(){ if (mode !== 'guest' && state === 'run' && !isCircuit() && !humansAlive()) endRound(null); }
@@ -1336,6 +1378,7 @@ function frame(now){
   requestAnimationFrame(frame);
   pollGamepad(keys, padGame);
   const raw = (now - last) / 1000; last = now;
+  statsFrame(raw);
   /* Frame pacing: browsers' frame timestamps wobble even when frames arrive on time, which shows as a
      fine stutter in motion. Use a smoothed frame time while frames are steady (paying back the
      difference a little each frame, so no time is lost), and the raw one on a genuine hitch. */

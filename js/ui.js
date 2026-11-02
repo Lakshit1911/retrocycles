@@ -350,6 +350,7 @@ Game.hooks.end = s => {
   showResult(s);
   if (user && FB) {
     const uid = user.uid;
+    if (s.log && FB.logMatch) FB.logMatch(uid, s.log).catch(e => console.warn('Match log not saved', e));
     FB.recordMatch(uid, myName(), s, {opponents:opponentRatings(s)})
       .then(({report, user:u}) => { if (user && user.uid === uid) { profile = {...profile, ...u}; showRatingChange(report); } })
       .catch(e => { console.warn('Stats not saved', e); const el = $('ratingLine'); if (el) el.innerHTML = '<span class="hint">Could not save this match to your profile.</span>'; });

@@ -100,6 +100,8 @@ export async function recordMatch(uid, name, s, ctx = {}){
   if (!res.committed || !last) throw new Error('Match not recorded');
   return {report:last.report, user:res.snapshot.val()};
 }
+/* One line in the rider's match log (logs/{uid}): game stats only, for progress reports */
+export const logMatch = (uid, entry) => push(ref(db, `logs/${uid}`), entry);
 /* Live ratings of other riders, read at match start so everyone rates against pre-match numbers. */
 export async function ratingsOf(uids){
   const out = {};

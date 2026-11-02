@@ -112,7 +112,8 @@ export const VISUAL_CONFIG = {
     medium:{pixelRatio:1.5, shadows:1024, bloomScale:0.6, msaa:2, particles:0.6},
     low:   {pixelRatio:1,   shadows:0,    bloomScale:0,   msaa:0, particles:0.35}
   },
-  autoQuality: {minFps:45, seconds:3, graceSeconds:4},
+  // under minFps for `seconds` drops a quality level (52: a 60 Hz screen that keeps missing frames is visibly stuttering)
+  autoQuality: {minFps:52, seconds:2.5, graceSeconds:4},
   // Edge-of-screen arrows for riders beside or behind you (off-screen) within this many cells
   hud: {threatRange:16, threatMax:5},
   camera: {
