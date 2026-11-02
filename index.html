@@ -14,10 +14,53 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Phantom Run</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%2305070d'/%3E%3Cpath d='M8 48h20V24h28' fill='none' stroke='%2339e6ff' stroke-width='6'/%3E%3Ccircle cx='56' cy='24' r='5' fill='%23ff9d2e'/%3E%3C/svg%3E">
+<!-- Fast start: open the connections the game needs right away, fetch the whole module graph in
+     parallel instead of one import level at a time, and never let the web fonts block the first paint.
+     (Keep the modulepreload list in step with the imports; a missing entry only costs a round trip.) -->
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://retrocycles-e9965-default-rtdb.firebaseio.com">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Michroma&family=IBM+Plex+Mono:wght@400;500;600&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&family=IBM+Plex+Mono:wght@400;500;600&display=swap"></noscript>
 <link rel="stylesheet" href="css/style.css">
+<link rel="modulepreload" href="js/ui.js">
+<link rel="modulepreload" href="js/game.js">
+<link rel="modulepreload" href="js/visuals/config.js">
+<link rel="modulepreload" href="js/visuals/riders.js">
+<link rel="modulepreload" href="js/vehicles/phantom-gt.js">
+<link rel="modulepreload" href="js/vehicles/xenoth.js">
+<link rel="modulepreload" href="js/visuals/renderer.js">
+<link rel="modulepreload" href="js/audio.js">
+<link rel="modulepreload" href="js/platform.js">
+<link rel="modulepreload" href="js/visuals/arena.js">
+<link rel="modulepreload" href="js/visuals/trails.js">
+<link rel="modulepreload" href="js/visuals/effects.js">
+<link rel="modulepreload" href="js/visuals/camera.js">
+<link rel="modulepreload" href="js/visuals/track.js">
+<link rel="modulepreload" href="js/sim/free.js">
+<link rel="modulepreload" href="js/sim/config.js">
+<link rel="modulepreload" href="js/sim/track.js">
+<link rel="modulepreload" href="js/sim/tracks/index.js">
+<link rel="modulepreload" href="js/sim/tracks/stadium.js">
+<link rel="modulepreload" href="js/sim/link.js">
+<link rel="modulepreload" href="js/input/bindings.js">
+<link rel="modulepreload" href="js/input/gamepad.js">
+<link rel="modulepreload" href="js/progression/colour.js">
+<link rel="modulepreload" href="js/progression/rating.js">
+<link rel="modulepreload" href="js/progression/season.js">
+<link rel="modulepreload" href="js/progression/signature.js">
+<link rel="modulepreload" href="js/input/controls.js">
+<link rel="modulepreload" href="js/mobile.js">
+<link rel="modulepreload" href="js/pwa.js">
+<link rel="modulepreload" href="js/firebase.js">
+<link rel="modulepreload" href="js/net.js">
+<link rel="modulepreload" href="js/config.js">
+<link rel="modulepreload" href="js/progression/record.js">
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js" crossorigin>
+<link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js" crossorigin>
 </head>
 <body>
 

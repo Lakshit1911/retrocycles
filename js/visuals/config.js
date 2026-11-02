@@ -113,7 +113,9 @@ export const VISUAL_CONFIG = {
     low:   {pixelRatio:1,   shadows:0,    bloomScale:0,   msaa:0, particles:0.35}
   },
   // under minFps for `seconds` drops a quality level (52: a 60 Hz screen that keeps missing frames is visibly stuttering)
-  autoQuality: {minFps:52, seconds:2.5, graceSeconds:4},
+  // target: fraction of the screen's refresh rate below which the render resolution steps down by `step`
+  // (to minScale), climbing back after upSeconds of headroom
+  autoQuality: {minFps:52, seconds:2.5, graceSeconds:4, target:0.88, step:0.1, minScale:0.6, upSeconds:6},
   // Edge-of-screen arrows for riders beside or behind you (off-screen) within this many cells
   hud: {threatRange:16, threatMax:5},
   camera: {

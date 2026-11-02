@@ -18,7 +18,8 @@ export const defaultQuality = () => matchMedia('(pointer: coarse)').matches ? 'm
 
 export function createPipeline({mount, scene, camera, quality, onAutoDrop}){
   const L = VC.lights;
-  const renderer = new THREE.WebGLRenderer({antialias:false, stencil:false, powerPreference:'high-performance'});
+  // desynchronized: a low-latency canvas where the browser supports it (frames skip a compositor step)
+  const renderer = new THREE.WebGLRenderer({antialias:false, stencil:false, powerPreference:'high-performance', desynchronized:true});
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = VC.render.exposure;
@@ -59,7 +60,7 @@ export function createPipeline({mount, scene, camera, quality, onAutoDrop}){
     scene.add(p); return p;
   });
 
-  let level = null, composer = null, bloom = null, settings = null;
+  let level = null, composer = null, bloom = null, settings = null, scale = 1;
   const size = new THREE.Vector2();
 
   function buildComposer(){
@@ -93,7 +94,7 @@ export function createPipeline({mount, scene, camera, quality, onAutoDrop}){
     if (!VC.quality[q]) q = defaultQuality();
     if (q === level) return level;
     level = q; settings = VC.quality[q];
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, settings.pixelRatio));
+    renderer.setPixelRatio(basePR() * scale);
     renderer.setSize(innerWidth, innerHeight);
     const shadows = settings.shadows > 0;
     if (renderer.shadowMap.enabled !== shadows) {
@@ -136,15 +137,35 @@ export function createPipeline({mount, scene, camera, quality, onAutoDrop}){
     }
   }
 
-  // Frame-rate watchdog: under minFps for `seconds` in a row drops one quality level (session only)
-  let acc = 0, frames = 0, slow = 0, grace = VC.autoQuality.graceSeconds;
+  /* Frame-rate watchdog, two stages (session only):
+     1. Dynamic resolution: when the frame rate falls under ~88% of what this screen can show, the
+        render resolution steps down (10% at a time, to VC.autoQuality.minScale); with steady headroom
+        it climbs back. Sharpness gives way first, so motion stays smooth at the screen's own rate.
+     2. Still under minFps for `seconds` at the lowest resolution: drop one quality level. */
+  function basePR(){ return Math.min(window.devicePixelRatio || 1, settings.pixelRatio); }
+  function applyScale(next){
+    scale = next;
+    renderer.setPixelRatio(basePR() * scale);
+    renderer.setSize(innerWidth, innerHeight);
+    if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
+  }
+  let acc = 0, frames = 0, slow = 0, grace = VC.autoQuality.graceSeconds, upT = 0, coolT = 0;
+  const recent = [];   // the last 20 s of half-second frame rates
   function watch(rawDt){
     if (document.hidden || rawDt > 0.25) { acc = frames = 0; return; }
     if (grace > 0) { grace -= rawDt; return; }
     acc += rawDt; frames++;
     if (acc < 0.5) return;
-    const fps = frames / acc; acc = frames = 0;
-    slow = fps < VC.autoQuality.minFps ? slow + 0.5 : 0;
+    const fps = frames / acc, AQ = VC.autoQuality; acc = frames = 0;
+    recent.push(Math.min(fps, 240)); if (recent.length > 40) recent.shift();
+    const refresh = Math.max(60, ...recent);   // what this screen has recently shown it can do (a 60 Hz cap on battery lowers it)
+    const minScale = Math.max(AQ.minScale, 1 / Math.max(1, basePR()));   // never below ~1 device pixel per CSS pixel on Retina
+    coolT -= 0.5;
+    if (fps < refresh * AQ.target) {
+      upT = 0;
+      if (scale > minScale + 1e-3) { if (coolT <= 0) { applyScale(Math.max(minScale, scale - AQ.step)); coolT = 1; } slow = 0; return; }
+    } else if (scale < 1 && (upT += 0.5) >= AQ.upSeconds) { upT = 0; coolT = 2; applyScale(Math.min(1, scale + AQ.step)); }
+    slow = fps < AQ.minFps ? slow + 0.5 : 0;
     if (slow >= VC.autoQuality.seconds && level !== 'low') {
       const next = QUALITY_LEVELS[QUALITY_LEVELS.indexOf(level) - 1];
       setQuality(next);
