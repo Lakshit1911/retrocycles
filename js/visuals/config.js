@@ -116,6 +116,13 @@ export const VISUAL_CONFIG = {
   // target: fraction of the screen's refresh rate below which the render resolution steps down by `step`
   // (to minScale), climbing back after upSeconds of headroom
   autoQuality: {minFps:52, seconds:2.5, graceSeconds:4, target:0.94, step:0.1, minScale:0.6, upSeconds:6},
+  // Grid arena pickups (host-authoritative; cfg.pickups). Cells; seconds. Colours sRGB.
+  gridPickups:{max:3, respawn:6, edge:6, minDist:10, surgeTime:1.6, surgeMul:1.65, phaseTime:2.2, breakR:4,
+    hover:0.9, size:0.42, spin:2.2, bob:0.12, halo:1.3,
+    types:{surge:{color:'#ffb547', label:'SPEED SURGE'}, phase:{color:'#c38bff', label:'PHASE'}, breaker:{color:'#ff5a3c', label:'WALL BREAKER'}}},
+  // Quick emotes (keys 1-4 or the HUD buttons) and the kill feed
+  emotes:['GG', '😈', '😱', '🔥'],
+  feed:{life:4.5, max:4, comboWindow:4},
   // Edge-of-screen arrows for riders beside or behind you (off-screen) within this many cells
   hud: {threatRange:16, threatMax:5},
   camera: {

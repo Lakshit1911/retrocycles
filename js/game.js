@@ -22,6 +22,7 @@
      keys.burst        Light Burst held (circuit)
      keys.brake        brake held (circuit) */
 import { VISUAL_CONFIG as VC } from './visuals/config.js';
+import { createGridPickups } from './visuals/pickups.js';
 import { createRiderVisual, disposeRiderVisual, resetPose, updatePose, updatePoseFree, headingYaw, craftOf } from './visuals/riders.js';
 import { createPipeline, lin, linHex, defaultQuality } from './visuals/renderer.js';
 import { SFX } from './audio.js';
@@ -65,7 +66,7 @@ addEventListener('touchstart', () => {
   if (playing()) $('touch').hidden = false;
 }, {once:true, passive:true});
 
-export const hooks = {end:null, quit:null, quality:null};
+export const hooks = {end:null, quit:null, quality:null, pauseClosed:null};
 let cfg = {diff:'rider', win:5, steer:'free', event:'arena', laps:3, track:DEFAULT_TRACK};
 const isCircuit = () => cfg.event === 'circuit';
 const isFree = () => cfg.steer === 'free' || isCircuit();
@@ -91,6 +92,7 @@ const fx = createEffects(scene, camera, reduceMotion);
 const rig = createCameraRig(camera, reduceMotion);
 // Circuit road, barriers, gates, pickups (js/visuals/track.js)
 const trackView = createTrackView(scene);
+const gridPickups = createGridPickups(scene, c => c - N / 2 + .5);
 renderer.localClippingEnabled = true;   // spawn scan clips each craft above a rising plane
 let slowT = 0, wasBoosting = 0;                           // visual-only slow motion after the local rider's own crash
 
@@ -120,11 +122,12 @@ function freeAhead(x, z, d, max){
   return n;
 }
 // Mark a straight run of cells as trail (guests rebuild occupancy from turn points)
-function raster(id, x0, z0, x1, z1){
+// i0: path index of (x0, z0) when known (>= 0): cells inside an earlier wall break stay open
+function raster(id, x0, z0, x1, z1, i0 = -1){
   const dx = Math.sign(x1 - x0), dz = Math.sign(z1 - z0);
   if (dx && dz) return;
   for (let x = x0, z = z0, i = 0; i <= N; i++, x += dx, z += dz) {
-    if (x >= 0 && z >= 0 && x < N && z < N) grid[x + z * N] = id + 1;
+    if (x >= 0 && z >= 0 && x < N && z < N && !(i0 >= 0 && cutHides(id, x, z, i0 + i))) grid[x + z * N] = id + 1;
     if (x === x1 && z === z1) break;
   }
 }
@@ -214,6 +217,7 @@ function resetRound(){
     placeBike(b, 0);
   });
   spectT = 0; deadT = 0;
+  pickupsReset();
 }
 
 function placeBike(b, dt){
@@ -233,6 +237,7 @@ function placeBike(b, dt){
   // the wall appears to leave the craft's tail; a guest's view of another rider keeps the wall right up to
   // its newest known point even while the craft is drawn a little behind it (never hide a live wall)
   b.trim = VC.vehicle.originBehindHead + b.mesh.tail + (mode === 'guest' && b !== player ? Math.min(0, lag) : lag);
+  b.mesh.group.visible = !(b.phaseT > 0) || Math.floor(clock * 14) % 2 === 0;   // phasing riders flicker
 }
 
 function turn(b, t){
@@ -246,25 +251,34 @@ function turn(b, t){
 function update(b, dt){
   if (!b.alive) return;
   // A remote rider that hit a wall is held for a moment: a late turn from them can still save it
-  if (b.grace > 0) { b.grace -= dt; if (b.grace <= 0) { b.grace = 0; b.p = .45; crash(b); } return; }
+  if (b.grace > 0) { b.grace -= dt; if (b.grace <= 0) { b.grace = 0; b.p = .45; crash(b, b.hitBy); } return; }
   const boosting = b.wantBoost && b.energy > .02;
   if (boosting) b.energy = Math.max(0, b.energy - dt * .42);
   if (b.grind > 0) b.energy = Math.min(1, b.energy + dt * .3);
   b.grind = Math.max(0, b.grind - dt);
-  const target = (boosting ? 1.7 : 1) + (b.grind > 0 ? .3 : 0);
+  if (b.surgeT > 0) b.surgeT -= dt;
+  if (b.phaseT > 0) b.phaseT -= dt;
+  const target = Math.max((boosting ? 1.7 : 1) + (b.grind > 0 ? .3 : 0), b.surgeT > 0 ? VC.gridPickups.surgeMul : 0);
   b.mul += (target - b.mul) * Math.min(1, dt * 4);
   b.p += BASE * b.mul * dt;
   while (b.p >= 1 && b.alive && !b.grace) { b.p -= 1; step(b); }
 }
 
 function step(b){
-  const [dx, dz] = DIRS[b.dir], nx = b.cx + dx, nz = b.cz + dz;
+  const [dx, dz] = DIRS[b.dir], nx = b.cx + dx, nz = b.cz + dz, inside = nx >= 0 && nz >= 0 && nx < N && nz < N;
+  let phased = false;
   if (blocked(nx, nz)) {
-    b.p = .45;
-    if (b.remote && mode === 'host') b.grace = GRACE; else crash(b);
-    return;
+    // Phase pickup: slip through a light wall (never the arena wall); the wall stays its owner's
+    if (inside && b.phaseT > 0) phased = true;
+    else {
+      b.p = .45; b.hitBy = inside ? grid[nx + nz * N] - 1 : -2;
+      if (b.remote && mode === 'host') b.grace = GRACE; else crash(b, b.hitBy);
+      return;
+    }
   }
-  grid[nx + nz * N] = b.id + 1; b.cx = nx; b.cz = nz; b.k++;
+  if (!phased) grid[nx + nz * N] = b.id + 1;
+  b.cx = nx; b.cz = nz; b.k++;
+  if (gpkOn()) takePickup(b);
   const j = (b.k % HIST) * 2; b.hist[j] = nx; b.hist[j + 1] = nz;
   for (const side of [1, 3]) {
     const [sx, sz] = DIRS[(b.dir + side) % 4];
@@ -310,6 +324,7 @@ function think(b){
 
 function crash(b, by){
   if (b === player && state === 'run' && ms) ms.d[deathCause(b, by)]++;
+  if (mode !== 'guest' && (state === 'run' || state === 'over') && !isCircuit()) addKill(b.id, by === undefined ? -3 : by);
   b.alive = false; b.grace = 0; b.mesh.group.visible = false;
   b.trim = 0;   // show the wall right up to the crash point
   fx.crash(b.vpos.x, b.vpos.z, b.r.color, pipe.particleScale);
@@ -362,12 +377,16 @@ function snapshot(){
     const c = isCircuit(), o = {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW, f:1, t:fw.tick,
       b:bikes.map(b => { const a = FS.pack(b.fr); a.push(b.fq ? b.fq.ack : -1); if (c) a.push(...FS.packRace(b.fr)); return a; })};
     if (c) { o.c = 1; o.pk = Array.from(fw.pk, v => v > fw.tick ? 1 : 0).join(''); if (raceRes) o.res = raceRes; }
-    return o;
+    return extras(o);
   }
-  return {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW,
+  const o = {m:matchId, r:round, s:state, cd:Math.max(0, +cd.toFixed(2)), sc:scores.slice(), w:lastW,
     b:bikes.map(b => [b.cx | 0, b.cz | 0, b.dir | 0, Math.round(b.p * 100), Math.round(b.mul * 100), b.alive ? 1 : 0,
-      Math.round(b.energy * 100), b.grind > 0 ? 1 : 0, b.k | 0, b.nt | 0])};
+      Math.round(b.energy * 100), b.grind > 0 ? 1 : 0, b.k | 0, b.nt | 0, b.surgeT > 0 ? 1 : 0, b.phaseT > 0 ? 1 : 0])};
+  if (gpkOn()) { o.pk = gpk.map(p => [p.x, p.z, PK_TYPES.indexOf(p.type), p.on ? 1 : 0]); o.cu = cuts.map(c => [c.x0, c.z0, c.x1, c.z1, ...c.k]); }
+  return extras(o);
 }
+// Kill feed, pickup events and emotes ride along in every snapshot (a few recent entries each)
+function extras(o){ if (kills.length) o.kf = kills.slice(-6); if (pev.length) o.pe = pev.slice(-6); if (ems.length) o.em = ems.slice(-6); return o; }
 function pushState(){ if (mode === 'host' && net) { snapAcc = 0; if (isFree()) sendPoints(); net.state(snapshot()); } }
 
 /* A guest's turn names the step it was pressed on. If the host has already
@@ -382,7 +401,7 @@ function remoteTurn(id, t, at, r){
   if (target > b.k) { b.sched.push({t, at:target}); b.sched.sort((x, y) => x.at - y.at); return; }
   const back = b.k - target;
   if (back === 0 || back > REWIND) { turn(b, t); return; }
-  for (let s = b.k; s > target; s--) { const j = (s % HIST) * 2; grid[b.hist[j] + b.hist[j + 1] * N] = 0; }
+  for (let s = b.k; s > target; s--) { const j = (s % HIST) * 2, c = b.hist[j] + b.hist[j + 1] * N; if (grid[c] === b.id + 1) grid[c] = 0; }
   const j = (target % HIST) * 2;
   b.cx = b.hist[j]; b.cz = b.hist[j + 1]; b.k = target; b.grace = 0;
   turn(b, t);
@@ -409,7 +428,7 @@ function addTurnPoint(r, id, n, x, z){
   L[n] = {x, z};
   if (r !== round) return;
   const b = bikes[id]; if (!b || !b.alive) return;
-  if (L[n - 1]) raster(id, L[n - 1].x, L[n - 1].z, x, z);
+  if (L[n - 1]) raster(id, L[n - 1].x, L[n - 1].z, x, z, cuts.length ? cumIdx(L, n - 1) : -1);
   if (b === player && n > 0 && b.local.length) { const l = b.local.shift(); if (ms && l.at) ms.rtt.push(performance.now() - l.at); }
 }
 function guestRound(st){
@@ -429,6 +448,7 @@ function guestRound(st){
     placeBike(b, 0);
   });
   state = 'countdown'; cd = st.cd; lastCd = 4; spectT = 0; deadT = 0;
+  gpk = []; cuts = []; bikes.forEach(b => { b.cuts = null; b.surgeT = b.phaseT = 0; });
   SFX.riser(Math.max(.6, st.cd));
   rig.intro(player);
   updateBoard();
@@ -440,13 +460,14 @@ function applySnapshot(st){
   if (Array.isArray(st.res)) raceRes = st.res;
   if (st.s === 'end') { matchOver(bikes[st.w] || null); return; }
   if (st.r !== round) (st.f ? freeGuestRound : guestRound)(st);
+  guestExtras(st);
   const now = performance.now();
   if (st.f) freeSnapshot(st, now);
   else st.b.forEach((a, i) => {
     const b = bikes[i]; if (!b) return;
     if (!a[5]) { if (b.alive) crash(b); return; }
     if (!b.alive) return;
-    b.energy = a[6] / 100; b.grind = a[7] ? .22 : 0; b.mul = a[4] / 100;
+    b.energy = a[6] / 100; b.grind = a[7] ? .22 : 0; b.mul = a[4] / 100; b.surgeT = a[10] ? .2 : 0; b.phaseT = a[11] ? .3 : 0;
     // Keep our own predicted turn until the host confirms it (or it times out)
     if (b === player && (b.local.length || b.gq.length) && now - b.localT < 900) { b.snapT = 0; return; }
     if (b === player) { b.local.length = 0; b.gq.length = 0; }
@@ -455,7 +476,7 @@ function applySnapshot(st){
     b.cx = a[0]; b.cz = a[1]; b.dir = a[2]; b.p = a[3] / 100; b.k = a[8]; b.nt = a[9]; b.snapT = 0;
     b.lag = carryLag(b, ox, oz, odir);
     const pts = guestPts(b), last = pts[pts.length - 1];
-    if (last) raster(b.id, last.x, last.z, b.cx, b.cz);
+    if (last) raster(b.id, last.x, last.z, b.cx, b.cz, cuts.length ? cumIdx(pts, pts.length - 1) : -1);
   });
   if (st.s !== state) {
     const prev = state; state = st.s;
@@ -495,9 +516,10 @@ function glide(b, dt){
   b.p += BASE * b.mul * dt;
   for (;;) {
     const [dx, dz] = DIRS[b.dir], nx = b.cx + dx, nz = b.cz + dz;
-    if (blocked(nx, nz)) { b.p = Math.min(b.p, .45); break; }
+    const through = b.phaseT > 0 && nx >= 0 && nz >= 0 && nx < N && nz < N;
+    if (blocked(nx, nz) && !through) { b.p = Math.min(b.p, .45); break; }
     if (b.p < 1) break;
-    b.p -= 1; b.cx = nx; b.cz = nz; b.k++; grid[nx + nz * N] = b.id + 1;
+    b.p -= 1; b.cx = nx; b.cz = nz; b.k++; if (!blocked(nx, nz)) grid[nx + nz * N] = b.id + 1;
     if (b === player && b.gq.length) guestTurnNow(b, b.gq.shift());
   }
 }
@@ -664,6 +686,7 @@ function freeGuestRound(st){
   for (const k in fpLog) if (+k < round) delete fpLog[k];
   (fpLog[round] || []).forEach(freeChunk);
   state = 'countdown'; cd = st.cd; lastCd = 4; spectT = 0; deadT = 0;
+  gpk = []; cuts = []; bikes.forEach(b => { b.cuts = null; b.surgeT = b.phaseT = 0; });
   SFX.riser(Math.max(.6, st.cd));
   rig.intro(player);
   updateBoard();
@@ -1132,6 +1155,142 @@ function startDemo(){
   state = 'demo'; buildRiders(RIDERS.slice(0, 4).map((r, i) => ({name:r.name, bot:true, color:VC.riders[i].key}))); resetRound(); demoT = 0;
   $('hud').hidden = true; $('touch').hidden = true; $('menu').hidden = false;
 }
+/* ---------- Grid pickups, wall breaks, kill feed, emotes ---------- */
+const PK_TYPES = ['surge', 'phase', 'breaker'];
+let gpk = [], cuts = [], kills = [], killSeq = 0, lastKill = 0, takedowns = [], combo = {n:0, t:-9};
+let pev = [], pevSeq = 0, lastPev = 0, ems = [], emSeq = 0, lastEm = 0, emoteT = 0, clock = 0;
+const gpkOn = () => !!cfg.pickups && !isFree() && !isCircuit() && state !== 'demo';
+function spawnSpot(){
+  const P = VC.gridPickups;
+  for (let tries = 0; tries < 80; tries++) {
+    const x = P.edge + Math.floor(Math.random() * (N - 2 * P.edge)), z = P.edge + Math.floor(Math.random() * (N - 2 * P.edge));
+    if (grid[x + z * N] || grid[x + 1 + z * N] || grid[x - 1 + z * N] || grid[x + (z + 1) * N] || grid[x + (z - 1) * N]) continue;
+    if (gpk.some(p => p.on && Math.abs(p.x - x) + Math.abs(p.z - z) < P.minDist)) continue;
+    if (bikes.some(b => b.alive && Math.abs(b.cx - x) + Math.abs(b.cz - z) < P.minDist)) continue;
+    return {x, z};
+  }
+  return null;
+}
+function pickupsReset(){
+  gpk = []; cuts = []; bikes.forEach(b => { b.cuts = null; b.surgeT = b.phaseT = 0; });
+  // (state may still read 'demo' here: the round is being set up for a real match)
+  if (!cfg.pickups || isFree() || isCircuit() || mode === 'guest') return;
+  for (let i = 0; i < VC.gridPickups.max; i++) {
+    const at = spawnSpot(); gpk.push(at ? {...at, type:PK_TYPES[i % PK_TYPES.length], on:true, at:0} : {x:0, z:0, type:PK_TYPES[i % 3], on:false, at:clock + 2});
+  }
+}
+// Host / solo: respawn taken pickups at a fresh spot after VC.gridPickups.respawn seconds
+function pickupsTick(){
+  if (!gpkOn() || mode === 'guest' || state !== 'run') return;
+  gpk.forEach(p => {
+    if (p.on || clock < p.at) return;
+    const at = spawnSpot(); if (!at) { p.at = clock + 1; return; }
+    Object.assign(p, at, {on:true, type:PK_TYPES[Math.floor(Math.random() * PK_TYPES.length)]});
+  });
+}
+function takePickup(b){
+  const p = gpk.find(q => q.on && q.x === b.cx && q.z === b.cz); if (!p) return;
+  const P = VC.gridPickups;
+  p.on = false; p.at = clock + P.respawn;
+  if (p.type === 'surge') b.surgeT = P.surgeTime;
+  else if (p.type === 'phase') b.phaseT = P.phaseTime;
+  else wallBreak(b);
+  pev.push([++pevSeq, b.id, PK_TYPES.indexOf(p.type)]); if (pev.length > 8) pev.shift();
+  pickupFeedback(b, p.type);
+}
+function pickupFeedback(b, type){
+  const T = VC.gridPickups.types[type];
+  if (b === player) { chime(type === 'breaker' ? 440 : 880, type === 'breaker' ? 1320 : 1760); flash(T.label, '', .7); }
+  if (type === 'breaker') {
+    fx.crash(b.vpos.x, b.vpos.z, hexOf(T.color), b === player ? .25 : .45);   // gentler on your own screen
+    const d = player && player.alive ? player.pos.distanceTo(b.pos) : 99;
+    if (d < 14) rig.impact(.25 * (1 - d / 14) + (b === player ? .2 : 0));
+    if (state !== 'demo') SFX.boom(b === player ? .6 : Math.max(.1, .45 - d / 60));
+  }
+}
+// Wall breaker: clear every light wall within breakR cells (riders' head cells stay), remembering how far
+// each rider had got, so walls laid through the hole later are solid and drawn again
+function wallBreak(b){
+  const R = VC.gridPickups.breakR, c = {x0:Math.max(0, b.cx - R), z0:Math.max(0, b.cz - R), x1:Math.min(N - 1, b.cx + R), z1:Math.min(N - 1, b.cz + R), k:bikes.map(o => o.k)};
+  applyCut(c);
+}
+function applyCut(c){
+  const heads = new Set(bikes.filter(o => o.alive).map(o => o.cx + o.cz * N));
+  for (let z = c.z0; z <= c.z1; z++) for (let x = c.x0; x <= c.x1; x++) { const i = x + z * N; if (!heads.has(i)) grid[i] = 0; }
+  cuts.push(c);
+  bikes.forEach(o => { o.cuts = cuts.map(q => ({x0:wx(q.x0) - .5, x1:wx(q.x1) + .5, z0:wx(q.z0) - .5, z1:wx(q.z1) + .5, k:(q.k[o.id] | 0) - .5})); });
+}
+// Is cell (x, z), laid as path index i of rider id, inside an earlier break? (guests rebuilding walls from turn points)
+const cutHides = (id, x, z, i) => cuts.some(c => i < (c.k[id] | 0) && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1);
+// Path index (cells from the spawn) of point j in a list of turn points
+function cumIdx(pts, j){ let d = 0; for (let k = 1; k <= j && k < pts.length; k++) { if (!pts[k] || !pts[k - 1]) return -1; d += Math.abs(pts[k].x - pts[k - 1].x) + Math.abs(pts[k].z - pts[k - 1].z); } return d; }
+
+/* Kill feed: solo / host log every crash (victim, whose wall); guests get the log in snapshots */
+function addKill(v, by){
+  kills.push([++killSeq, v, by]); if (kills.length > 8) kills.shift();
+  showKill(v, by);
+}
+function showKill(v, by){
+  const V = bikes[v], K = by >= 0 && by !== v ? bikes[by] : null; if (!V) return;
+  const tag = o => `<b style="color:${o.r.css}">${escHtml(o.name)}</b>`;
+  const line = K ? `${tag(K)} boxed in ${tag(V)}` : by === v ? `${tag(V)} hit their own wall` : by === -2 ? `${tag(V)} hit the arena wall` : `${tag(V)} crashed`;
+  feedLine(line);
+  if (K) {
+    takedowns[K.id] = (takedowns[K.id] || 0) + 1;
+    if (K === player) {
+      combo = clock - combo.t < VC.feed.comboWindow ? {n:combo.n + 1, t:clock} : {n:1, t:clock};
+      flash(['TAKEDOWN', 'DOUBLE TAKEDOWN', 'TRIPLE TAKEDOWN', 'RAMPAGE'][Math.min(3, combo.n - 1)], V.name, .9);
+      chime(660, 1320);
+    }
+    // AI rivals gloat now and then after taking you out
+    if (V === player && K.ai && Math.random() < .5) setTimeout(() => { if (K.alive || state === 'over') addEmote(K.id, Math.random() < .5 ? 1 : 0); }, 600);
+  }
+}
+const escHtml = t => String(t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
+function feedLine(html){
+  const el = document.createElement('div'); el.className = 'feed-line'; el.innerHTML = html;
+  const box = $('feed'); box.prepend(el);
+  while (box.children.length > VC.feed.max) box.lastChild.remove();
+  setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 400); }, VC.feed.life * 1000);
+}
+
+/* Emotes: keys 1-4 or the HUD buttons; a bubble pops over the rider's craft for everyone */
+function sendEmote(e){
+  if (!player || !playing() || clock - emoteT < 1.2) return;
+  emoteT = clock;
+  if (mode === 'guest') { if (net && net.emote) net.emote(e); showEmote(player.id, e); }
+  else addEmote(player.id, e);
+}
+function addEmote(id, e){ ems.push([++emSeq, id, e]); if (ems.length > 8) ems.shift(); showEmote(id, e); }
+function remoteEmote(id, e){ if (mode === 'host' && bikes[id] && e >= 0 && e < VC.emotes.length) addEmote(id, e | 0); }
+const pops = [];
+function showEmote(id, e){
+  const b = bikes[id]; if (!b) return;
+  const el = document.createElement('div'); el.className = 'emote-pop'; el.textContent = VC.emotes[e] || '';
+  el.style.setProperty('--c', b.r.css); $('emoteLayer').appendChild(el);
+  pops.push({el, b, t:0});
+}
+const popV = new THREE.Vector3();
+function updatePops(dt){
+  for (let i = pops.length - 1; i >= 0; i--) {
+    const p = pops[i]; p.t += dt;
+    if (p.t > 2.2) { p.el.remove(); pops.splice(i, 1); continue; }
+    popV.copy(p.b.vpos); popV.y += 1.5 + p.t * .25; popV.project(camera);
+    const on = popV.z < 1 && Math.abs(popV.x) < 1.2 && Math.abs(popV.y) < 1.2;
+    p.el.style.opacity = on ? String(Math.min(1, (2.2 - p.t) * 2)) : '0';
+    p.el.style.transform = `translate(${(popV.x * .5 + .5) * innerWidth}px, ${(-popV.y * .5 + .5) * innerHeight}px) translate(-50%, -100%)`;
+  }
+}
+// Guests: new kill-feed lines, pickup events, emotes and breaks from a snapshot
+function guestExtras(st){
+  if (Array.isArray(st.kf)) st.kf.forEach(([q, v, by]) => { if (q > lastKill) { lastKill = q; showKill(v, by); } });
+  if (Array.isArray(st.em)) st.em.forEach(([q, id, e]) => { if (q > lastEm) { lastEm = q; if (id !== player.id) showEmote(id, e); } });
+  if (Array.isArray(st.pe)) st.pe.forEach(([q, id, t]) => { if (q > lastPev) { lastPev = q; const b = bikes[id]; if (b) pickupFeedback(b, PK_TYPES[t]); } });
+  if (Array.isArray(st.pk)) gpk = st.pk.map(([x, z, t, on]) => ({x, z, type:PK_TYPES[t], on:!!on}));
+  if (Array.isArray(st.cu)) for (let i = cuts.length; i < st.cu.length; i++) { const a = st.cu[i]; applyCut({x0:a[0], z0:a[1], x1:a[2], z1:a[3], k:a.slice(4)}); }
+}
+function matchExtrasReset(){ kills = []; killSeq = lastKill = 0; takedowns = []; combo = {n:0, t:-9}; pev = []; pevSeq = lastPev = 0; ems = []; emSeq = lastEm = 0; $('feed').innerHTML = ''; }
+
 /* ---------- Match log: what ui.js saves per match for progress reports (signed-in riders) ---------- */
 let ms = null;
 function statsReset(){ ms = {t0:performance.now(), d:{own:0, rival:0, wall:0, other:0}, frames:0, ft:0, slow:0, gaps:[], lastSnap:0, rtt:[]}; }
@@ -1167,7 +1326,7 @@ function statsLog(s){
     rtt:Math.round(pct(ms.rtt, .5)), dev, br};
 }
 function begin(){
-  buildBoard(); statsReset();
+  buildBoard(); statsReset(); matchExtrasReset();
   document.documentElement.style.setProperty('--accent', player.r.css);   // your colour is the only UI accent
   const c = isCircuit();
   $('winLabel').textContent = c ? `${trackOf(cfg.track).name} · ${cfg.laps} laps` : `First to ${cfg.win} rounds`;
@@ -1184,14 +1343,14 @@ function begin(){
   else nextRound();
 }
 function startSolo(o){
-  SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win, steer:o.steer === 'grid' ? 'grid' : 'free', ...eventCfg(o)};
+  SFX.init(); mode = 'solo'; net = null; me = 0; cfg = {diff:o.diff, win:o.win, steer:o.steer === 'grid' ? 'grid' : 'free', pickups:o.pickups !== false, ...eventCfg(o)};
   buildRiders([{name:o.name || 'YOU', color:o.color, craft:o.craft}, ...RIDERS.slice(1, 1 + o.bots).map((r, j) => ({name:r.name, bot:true, craft:botCraft(j)}))]);
   begin();
 }
 function startOnline(o){
   SFX.init(); mode = o.role; net = o.net; me = o.me; matchId = o.id; turnLog = {};
   fpLog = {}; fpSeq = 0;
-  cfg = {diff:o.diff, win:o.win, steer:o.steer === 'free' ? 'free' : 'grid', ...eventCfg(o)};   // rooms from before free steering race on the grid
+  cfg = {diff:o.diff, win:o.win, steer:o.steer === 'free' ? 'free' : 'grid', pickups:o.pickups !== false, ...eventCfg(o)};   // rooms from before free steering race on the grid
   buildRiders(o.roster.map((p, i) => ({name:p.name, bot:p.bot, color:p.color, craft:p.craft, remote:o.role === 'host' && !p.bot && i !== o.me})));
   begin();
 }
@@ -1232,6 +1391,8 @@ function matchOver(w){
     roundsWon:scores[player.id] || 0, rounds:round, diff:cfg.diff,
     table:bikes.map(b => ({name:b.name, css:b.r.css, score:scores[b.id] || 0, me:b === player, bot:b.ai})).sort((a, b) => b.score - a.score)};
   summary.log = statsLog(summary);   // before startDemo() resets the mode and riders
+  const top = bikes.reduce((a, b) => (takedowns[b.id] || 0) > (takedowns[a.id] || 0) ? b : a, bikes[0]);
+  if (top && takedowns[top.id]) summary.mvp = {name:top.name, css:top.r.css, n:takedowns[top.id], me:top === player};
   if (mode === 'host') { state = 'end'; lastW = w ? w.id : -1; pushState(); }
   SFX.hit(summary.won ? 'win' : 'fall');
   setMsg('', '');
@@ -1248,6 +1409,8 @@ function circuitOver(){
       return {name:b.name, css:b.r.css, score:n - place, place, total:total >= 0 ? total / 60 : null, best:best ? best / 60 : null, laps, me:b === player, bot:b.ai};
     })};
   summary.log = statsLog(summary);   // before startDemo() resets the mode and riders
+  const top = bikes.reduce((a, b) => (takedowns[b.id] || 0) > (takedowns[a.id] || 0) ? b : a, bikes[0]);
+  if (top && takedowns[top.id]) summary.mvp = {name:top.name, css:top.r.css, n:takedowns[top.id], me:top === player};
   if (mode === 'host') { state = 'end'; lastW = w ? w.id : -1; pushState(); }
   SFX.hit(summary.won ? 'win' : 'fall');
   setMsg('', '');
@@ -1261,6 +1424,8 @@ function togglePause(force){
   paused = open && mode === 'solo';
   $('pauseTitle').textContent = mode === 'solo' ? 'PAUSED' : 'MENU';
   $('pauseHint').textContent = mode === 'solo' ? 'Press P or tap Resume' : 'The race keeps running while this is open';
+  $('rulesBtn').hidden = mode === 'guest';
+  if (!open && hooks.pauseClosed) hooks.pauseClosed();
   if (open) keys.boost = keys.l = keys.r = keys.burst = keys.brake = false;
 }
 function quit(){
@@ -1295,6 +1460,7 @@ addEventListener('keydown', e => {
   const k = e.code, a = actionOf(e);
   if (playing() && (a || ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(k))) e.preventDefault();
   if (a === 'mute' && !e.repeat) { SFX.toggle(); return; }
+  if (playing() && !e.repeat && /^Digit[1-4]$/.test(k) && !e.metaKey && !e.ctrlKey) { sendEmote(+k[5] - 1); return; }
   if (!playing() || !a) return;
   if (e.repeat && a !== 'boost') return;
   // Circuit: no snap turns, so Shift + arrow just steers (Shift on its own is Light Burst)
@@ -1336,6 +1502,7 @@ hold($('tB'), () => { keys.boost = true; trySkip(); }, () => keys.boost = false)
 hold($('tX'), () => { keys.burst = true; }, () => keys.burst = false);   // circuit: Light Burst
 document.querySelectorAll('[data-mute]').forEach(el => el.addEventListener('click', () => { SFX.init(); SFX.toggle(); }));
 $('camBtn').addEventListener('click', cycleCam);
+document.querySelectorAll('#emoteBar [data-em]').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); sendEmote(+el.dataset.em); el.blur(); }));
 // Swipe left / right anywhere on the arena to turn (free mode: snap turn); a plain tap skips while spectating
 let swipe = null;
 const cv = renderer.domElement;
@@ -1418,7 +1585,11 @@ function frame(now){
       bikes.forEach(b => update(b, dt));
     }
   }
+  clock += dt;
+  pickupsTick();
   bikes.forEach(b => b.alive ? (isFree() ? placeFree(b, vdt) : placeBike(b, vdt)) : fadeDead(b, dt));
+  if (gpkOn() || (mode === 'guest' && gpk.length)) gridPickups.update(vdt, gpk); else gridPickups.hide();
+  updatePops(real);
   trails.tick(vdt);
   if (isCircuit()) bikes.forEach(circuitWalls);
   else if (isFree()) bikes.forEach(freeWalls);
@@ -1466,7 +1637,9 @@ requestAnimationFrame(frame);
 
 export const Game = {
   hooks, startSolo, startOnline, toDemo:() => { setMsg('', ''); startDemo(); },
-  remoteTurn, remoteBoost, removeRider, applySnapshot, addTurnPoint, remoteInput, addFreePoints,
+  remoteTurn, remoteBoost, removeRider, applySnapshot, addTurnPoint, remoteInput, addFreePoints, remoteEmote, sendEmote,
+  // end the current match quietly (no result, no quit hook): the host or a solo rider restarting with new rules
+  abort:() => { setMsg('', ''); $('pausebox').hidden = true; paused = false; startDemo(); },
   initAudio:() => SFX.init(),
   keys,   // input state other modules (gamepad) may set: l, r, boost, snapQ, burst, brake
   showcase, colourOf,
@@ -1479,5 +1652,9 @@ export const Game = {
       race:bikes.map(b => b.fr ? {gp:b.fr.gp, lap:FS.lapOf(fw, b.fr), meter:+b.fr.meter.toFixed(3), lay:b.fr.lay, ghost:b.fr.ghostT, phase:b.fr.phaseT, shield:b.fr.shield,
         done:b.fr.done, place:b.fr.place, best:b.fr.best, prog:+b.fr.prog.toFixed(1), crashes:b.fr.crashes, burstPts:b.wlist ? b.wlist.n : 0} : null)} : {event:cfg.event})}),
   get state(){ return state; },
-  get mode(){ return mode; }
+  get mode(){ return mode; },
+  // tests: pickups / breaks / kill feed state, and hand the local rider a pickup
+  extras:() => ({cfgPickups:cfg.pickups, on:gpkOn(), gpk:gpk.map(p => ({...p})), cuts:cuts.length, kills:kills.length, takedowns:takedowns.slice(), ems:ems.length,
+    surge:player && player.surgeT > 0, phase:player && player.phaseT > 0, mul:player && +player.mul.toFixed(2)}),
+  testGive:t => { if (!player || mode === 'guest') return; if (t === 'surge') player.surgeT = VC.gridPickups.surgeTime; else if (t === 'phase') player.phaseT = VC.gridPickups.phaseTime; else wallBreak(player); pickupFeedback(player, t); }
 };

@@ -41,7 +41,7 @@ const backFromGoogle = (() => {
 })();
 let pendingJoin = (new URLSearchParams(location.search).get('join') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
 
-let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson', craft:'gt', steer:'free', event:'arena', laps:3};
+let settings = {bots:3, obots:2, diff:'rider', win:5, color:'crimson', craft:'gt', steer:'free', event:'arena', laps:3, pickups:true};
 try { const s = JSON.parse(localStorage.getItem('rc3d-settings') || 'null'); if (s) settings = Object.assign(settings, s); } catch (e) {}
 const save = () => { try { localStorage.setItem('rc3d-settings', JSON.stringify(settings)); } catch (e) {} };
 const myName = () => (profile && profile.name) || (user && user.displayName) || 'YOU';
@@ -266,13 +266,17 @@ function renderSettings(){
   $('kTurn').textContent = free ? 'Steer (hold)' : 'Turn 90°';
   $('kSnap').hidden = !free || circuit;
   $('kPhone').textContent = circuit ? 'hold ◀ ▶ to steer · BURST button' : free ? 'hold ◀ ▶ to steer · swipe to snap' : 'buttons or swipe';
+  // Pickups: grid arena only
+  const pickups = view ? c.pickups !== false : settings.pickups !== false;
+  $('pickRow').hidden = circuit || free;
+  qa('#pickSeg button').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.p === 'on') === pickups)));
   qa('#diffSeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.d === diff)));
   qa('#winSeg button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.w === win)));
   qa('#qualitySeg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === Game.quality)));
   $('diffHint').textContent = DIFF[diff].hint;
   $('settingsBlock').classList.toggle('locked', !!view);
 }
-const cfgOut = () => ({bots:settings.obots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps});
+const cfgOut = () => ({bots:settings.obots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, pickups:settings.pickups !== false});
 function changed(){
   save(); renderSettings();
   if (screen === 'lobby' && room && room.isHost) { room.setCfg(cfgOut()); renderLobby(); }
@@ -289,6 +293,7 @@ qa('#winSeg button').forEach(b => b.addEventListener('click', () => { settings.w
 qa('#steerSeg button').forEach(b => b.addEventListener('click', () => { settings.steer = b.dataset.s; changed(); }));
 qa('#eventSeg button').forEach(b => b.addEventListener('click', () => { settings.event = b.dataset.e; changed(); }));
 qa('#lapsSeg button').forEach(b => b.addEventListener('click', () => { settings.laps = +b.dataset.l; changed(); }));
+qa('#pickSeg button').forEach(b => b.addEventListener('click', () => { settings.pickups = b.dataset.p === 'on'; changed(); }));
 // Graphics quality is per device, so it never goes into the room settings
 qa('#qualitySeg button').forEach(b => b.addEventListener('click', () => { Game.setQuality(b.dataset.q); renderSettings(); }));
 // Master volume (per device), alongside the SOUND mute button
@@ -313,7 +318,7 @@ Game.hooks.quality = (q, auto) => {
 /* ---------- Solo ---------- */
 $('ride').addEventListener('click', () => {
   save(); keepAwake(true); ratedRoster = null;
-  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, name:myName(), color:myColor(), craft:myCraft()});
+  Game.startSolo({bots:settings.bots, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, pickups:settings.pickups !== false, name:myName(), color:myColor(), craft:myCraft()});
 });
 
 /* ---------- Match end / quit ---------- */
@@ -326,12 +331,13 @@ function circuitRows(s){
   return `<div class="rows circuit-rows">${s.table.map((r, i) => `<div class="${r.me ? 'me' : ''}"><em class="num">P${r.place}</em><i style="background:${r.css}"></i><span>${esc(r.name)}${r.bot ? ' · AI' : ''}${r.me ? ' · you' : ''}</span>`
     + `<small class="num">best ${fmtTime(r.best)}</small><b class="num">${r.total != null ? (i && lead != null ? '+' + (r.total - lead).toFixed(3) : fmtTime(r.total)) : `${r.laps} / ${s.laps} laps`}</b></div>`).join('')}</div>`;
 }
+const mvpLine = s => s.mvp ? `<div class="hint mvp">MVP · <b style="color:${s.mvp.css}">${esc(s.mvp.name)}</b> · ${s.mvp.n} takedown${s.mvp.n > 1 ? 's' : ''}${s.mvp.me ? ' · that\'s you' : ''}</div>` : '';
 function showResult(s){
   if (s.event === 'circuit') {
     $('result').innerHTML = `<div class="tag eyebrow">${s.online ? 'Online' : 'Solo'} race · ${esc(s.track || 'Circuit')} · ${s.laps} laps</div>
       <h3>${esc(s.won ? 'YOU TAKE THE FLAG' : s.winner ? `${s.winner} TAKES THE FLAG` : 'RACE OVER')}</h3>
       ${circuitRows(s)}
-      <div class="rating-line" id="ratingLine">${user ? '<span class="tag">Rating</span><span class="hint">Updating…</span>' : '<span class="hint">Guest ride · sign in to earn a skill rating and your signature light</span>'}</div>`;
+      ${mvpLine(s)}<div class="rating-line" id="ratingLine">${user ? '<span class="tag">Rating</span><span class="hint">Updating…</span>' : '<span class="hint">Guest ride · sign in to earn a skill rating and your signature light</span>'}</div>`;
     $('result').style.setProperty('--win', s.winnerCss);
     $('result').hidden = false;
     return;
@@ -340,7 +346,7 @@ function showResult(s){
   $('result').innerHTML = `<div class="tag eyebrow">${s.online ? 'Online' : 'Solo'} match · ${s.rounds} rounds</div>
     <h3>${esc(title)}</h3><div class="hint">${pick(s.won ? WIN_QUIPS : LOSS_QUIPS)}</div>
     <div class="rows">${s.table.map(r => `<div class="${r.me ? 'me' : ''}"><i style="background:${r.css}"></i><span>${esc(r.name)}${r.bot ? ' · AI' : ''}${r.me ? ' · you' : ''}</span><b>${r.score}</b></div>`).join('')}</div>
-    <div class="rating-line" id="ratingLine">${user ? '<span class="tag">Rating</span><span class="hint">Updating…</span>' : '<span class="hint">Guest ride · sign in to earn a skill rating and your signature light</span>'}</div>`;
+    ${mvpLine(s)}<div class="rating-line" id="ratingLine">${user ? '<span class="tag">Rating</span><span class="hint">Updating…</span>' : '<span class="hint">Guest ride · sign in to earn a skill rating and your signature light</span>'}</div>`;
   $('result').style.setProperty('--win', s.winnerCss);
   $('result').hidden = false;
 }
@@ -454,7 +460,13 @@ function watchRoom(){
       if (s === 'lobby' && inMatch && !r.isHost) { inMatch = false; r.stopMatch(); Game.toDemo(); keepAwake(false); show('lobby'); }
       tryBegin();
     },
-    start:st => { if (room !== r) return; roomView.start = st; tryBegin(); }
+    start:st => {
+      if (room !== r) return;
+      roomView.start = st;
+      // The host restarted with new rules mid-match: drop the old match and join the new one
+      if (inMatch && !r.isHost && st && st.id !== lastStart) { Game.abort(); r.stopMatch(); inMatch = false; toast('The host changed the rules. New match!'); }
+      tryBegin();
+    }
   });
 }
 function tryBegin(){
@@ -465,8 +477,8 @@ function tryBegin(){
   const roster = st.roster || [], me = roster.findIndex(p => p.uid === user.uid);
   if (me < 0) { toast('A match started without you. You are in for the next one.'); return; }
   inMatch = true; keepAwake(true); primeRatings(roster);
-  Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, steer:st.steer, event:st.event, laps:st.laps, track:st.track, id:st.id,
-    net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b), input:(r, q, s) => room.sendInputs(r, q, s), get fast(){ return !!room && room.fast; }}});
+  Game.startOnline({role:'guest', roster, me, diff:st.diff, win:st.win, steer:st.steer, event:st.event, laps:st.laps, track:st.track, pickups:st.pickups, id:st.id,
+    net:{turn:(t, at, r) => room.sendTurn(t, at, r), boost:b => room.sendBoost(b), input:(r, q, s) => room.sendInputs(r, q, s), emote:e => room.sendEmote(e), get fast(){ return !!room && room.fast; }}});
   room.listenMatch(Game.applySnapshot, Game.addTurnPoint, Game.addFreePoints);
 }
 async function hostStart(){
@@ -477,17 +489,33 @@ async function hostStart(){
     ...players.map((p, i) => ({name:p.name, uid:p.uid, bot:false, color:col.players[i], craft:p.craft})),
     ...Array.from({length:bots}, (_, j) => ({name:RIDERS[players.length + j].name, uid:'', bot:true, color:col.bots[j], craft:botCraft(j)}))
   ];
-  const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps};
+  const start = {id:String(Date.now()), roster, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, pickups:settings.pickups !== false};
   await busy($('startMatch'), async () => {
     try { await room.begin(start); }
     catch (e) { toast('Could not start: ' + e.message); return; }
     lastStart = start.id; inMatch = true; matchRoster = roster; gone = new Set(); keepAwake(true); primeRatings(roster);
-    room.listenInputs(roster, Game.remoteTurn, Game.remoteBoost, Game.remoteInput);
-    Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, id:start.id,
+    room.listenInputs(roster, Game.remoteTurn, Game.remoteBoost, Game.remoteInput, Game.remoteEmote);
+    Game.startOnline({role:'host', roster, me:0, diff:settings.diff, win:settings.win, steer:settings.steer, event:settings.event, laps:settings.laps, pickups:start.pickups, id:start.id,
       net:{state:s => room.sendState(s), turn:(r, i, n, x, z) => room.logTurn(r, i, n, x, z), points:(r, q, p) => room.logPoints(r, q, p), get fast(){ return !!room && room.fast; }}});
   });
 }
 $('startMatch').addEventListener('click', hostStart);
+
+/* Pause menu: CHANGE RULES (solo, or the host of a grid). The shared settings block moves into the menu;
+   RESTART WITH THESE ends the race quietly and starts a fresh match with the new rules for everyone. */
+function rulesOpen(on){
+  const box = $('pauseRules'), card = box.closest('.pausecard'), blk = $('settingsBlock');
+  box.hidden = !on; card.classList.toggle('rules', on); $('rulesBtn').hidden = on || (!!room && !room.isHost);
+  if (on) { box.querySelector('[data-pause-slot]').appendChild(blk); blk.hidden = false; renderSettings(); }
+  else { const slot = document.querySelector(`.screen[data-screen="${screen}"] [data-slot="settings"]`); if (slot) slot.appendChild(blk); renderSettings(); }
+}
+$('rulesBtn').addEventListener('click', () => rulesOpen(true));
+Game.hooks.pauseClosed = () => { if (!$('pauseRules').hidden) rulesOpen(false); };
+$('restartBtn').addEventListener('click', async () => {
+  save(); rulesOpen(false); Game.abort();
+  if (room && room.isHost) { room.stopMatch(); inMatch = false; await hostStart(); }
+  else if (!room) $('ride').click();
+});
 /* Auto-update: while you sit in the menus (not in a grid or a race), check every couple of minutes
    whether a newer build is deployed and reload into it, so everyone in a match runs the same code. */
 const VERSION_FILES = ['index.html', 'js/game.js', 'js/net.js', 'js/ui.js'];

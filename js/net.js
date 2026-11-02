@@ -195,10 +195,12 @@ export class Room {
     for (const L of this.links.values()) send(L, 'ev', {k:'fp', key, v:pts});
     set(this.path(`fp/${key}`), pts).catch(() => {});
   }
-  listenInputs(roster, onTurn, onBoost, onInput){
+  listenInputs(roster, onTurn, onBoost, onInput, onEmote){
     roster.forEach((p, i) => {
       if (p.bot || p.uid === this.uid) return;
-      const seen = new Set(); let boostN = -1;
+      const seen = new Set(), seenEm = new Set(); let boostN = -1;
+      const emote = v => { if (!v || !onEmote || seenEm.has(v.id)) return; seenEm.add(v.id); onEmote(i, v.e | 0); };
+      this.offMatch.push(onChildAdded(this.path(`in/${p.uid}/e`), s => emote(s.val())));
       const turn = v => { if (!v) return; if (v.id) { if (seen.has(v.id)) return; seen.add(v.id); } onTurn(i, v.t > 0 ? 1 : -1, v.at | 0, v.r | 0); };
       const boost = v => {
         if (v && typeof v === 'object') { if (v.n <= boostN) return; boostN = v.n; onBoost(i, !!v.v); }
@@ -213,6 +215,7 @@ export class Room {
         if (m.k === 't') turn(m.v);
         else if (m.k === 'b') boost(m.v);
         else if (m.k === 'f' && onInput) input(m.v);
+        else if (m.k === 'em') emote(m.v);
         else if (m.k === 'pi') send(link, 'st', {k:'po', t:m.t});
         else if (m.k === 'po') pong(link, m.t);
       }});
@@ -228,6 +231,11 @@ export class Room {
     const v = {t, at, r, id:`${this.mySid}-${++this.turnN}`}, L = this.links.get('host');
     both(L, {k:'t', v}); setTimeout(() => send(L, 'st', {k:'t', v}), 20);
     push(this.path(`in/${this.uid}/t`), v).catch(() => {});
+  }
+  sendEmote(e){
+    const v = {e, id:`${this.mySid}-e${++this.turnN}`};
+    both(this.links.get('host'), {k:'em', v});
+    push(this.path(`in/${this.uid}/e`), v).catch(() => {});
   }
   sendBoost(b){
     const v = {v:!!b, n:++this.boostN};

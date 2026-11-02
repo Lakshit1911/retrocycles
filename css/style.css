@@ -90,6 +90,21 @@ body.coarse #camBtn{display:inline-block}
 .threat{--c:#fff;position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;background:var(--c);
   clip-path:polygon(100% 50%,0 0,28% 50%,0 100%);filter:drop-shadow(0 0 6px var(--c));transition:opacity .12s}
 
+/* Kill feed (top centre), emote bar (right edge) and emote bubbles over the crafts */
+.feed{position:fixed;top:calc(env(safe-area-inset-top,0px) + 18px);left:50%;transform:translateX(-50%);display:grid;gap:4px;justify-items:center;pointer-events:none;z-index:2;width:max-content;max-width:min(560px,calc(100vw - 32px))}
+.feed-line{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);padding:5px 10px;background:rgba(11,13,18,.6);border:1px solid var(--line);border-radius:var(--r);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);animation:feedIn .25s ease-out;transition:opacity .4s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.feed-line b{font-weight:500}
+.feed-line.out{opacity:0}
+@keyframes feedIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.emotes{position:fixed;right:var(--gr);top:50%;transform:translateY(-50%);display:grid;gap:6px;pointer-events:auto;z-index:3}
+.emotes .hud-btn{min-width:40px;height:36px;font-size:15px;padding:0 6px;color:var(--ink)}
+.emote-layer{position:fixed;inset:0;pointer-events:none;z-index:4;overflow:hidden}
+.emote-pop{--c:#fff;position:absolute;left:0;top:0;font:400 20px/1 var(--display);letter-spacing:.08em;color:#fff;padding:6px 11px;border-radius:16px;white-space:nowrap;
+  background:rgba(11,13,18,.72);border:1px solid var(--c);box-shadow:0 0 16px color-mix(in srgb, var(--c) 45%, transparent);will-change:transform,opacity}
+@media (max-width:560px){ .feed{top:calc(env(safe-area-inset-top,0px) + 96px)} .emotes .hud-btn{min-width:36px;height:32px;font-size:13px} }
+@media (max-height:520px){ .feed{top:calc(env(safe-area-inset-top,0px) + 56px)} .emotes{top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 96px);grid-auto-flow:column} }
+
 /* ---------- Touch controls: translucent dark discs with a thin coloured ring ---------- */
 .touch{position:fixed;left:0;right:0;bottom:0;display:flex;justify-content:space-between;align-items:flex-end;z-index:3;pointer-events:none;
   padding-left:var(--gx);padding-right:var(--gr);padding-block:0 calc(env(safe-area-inset-bottom,0px) + 14px)}
@@ -105,7 +120,10 @@ body.coarse .hints{display:none}
 /* ---------- In-race menu ---------- */
 .pausebox{position:fixed;inset:0;display:grid;place-items:center;background:rgba(4,5,8,.6);z-index:6;text-align:center;padding:16px;
   -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-.pausecard{display:grid;gap:16px;width:min(360px,100%);padding:28px 24px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+.pausecard{display:grid;gap:16px;width:min(360px,100%);padding:28px 24px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);max-height:calc(100dvh - 32px);overflow:auto}
+.pausecard.rules{width:min(540px,100%);text-align:left}
+.pause-rules{display:grid;gap:12px}
+.pause-rules .row.device{display:none}
 .pausebox .big{font-family:var(--display);font-size:24px;letter-spacing:.3em}
 .pause-actions{display:grid;gap:10px;margin-top:10px}
 

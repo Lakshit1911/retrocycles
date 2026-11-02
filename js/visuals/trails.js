@@ -100,6 +100,43 @@ export function createTrails(scene){
   const time = {value:0};
   // Scratch polyline, reused every frame (PA: per-point intensity)
   const PX = new Float32Array(MAX), PZ = new Float32Array(MAX), PD = new Float32Array(MAX), PA = new Float32Array(MAX);
+  const QX = new Float32Array(MAX), QZ = new Float32Array(MAX), QA = new Float32Array(MAX);
+
+  /* Grid wall breaks: b.cuts = [{x0, x1, z0, z1 (world box), k (path length from the spawn)}]. The part of
+     the rider's wall inside a box that was laid before the break (path distance <= k) is cut out: the
+     polyline gets zero-intensity points around each gap (as burst walls do). Returns the new point count. */
+  function cutLine(n, cuts){
+    let m = 0, d0 = 0;
+    const put = (x, z, a) => { if (m < MAX - 1) { QX[m] = x; QZ[m] = z; QA[m] = a; m++; } };
+    const gapAt = (x, z, d) => cuts.some(c => d <= c.k && x >= c.x0 && x <= c.x1 && z >= c.z0 && z <= c.z1);
+    put(PX[0], PZ[0], gapAt(PX[0], PZ[0], 0) ? 0 : 1);
+    for (let i = 0; i < n - 1; i++) {
+      const ax = PX[i], az = PZ[i], bx = PX[i + 1], bz = PZ[i + 1], dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz);
+      const iv = [];
+      if (L > 1e-6) for (const c of cuts) {
+        let t0 = 0, t1 = Math.min(1, (c.k - d0) / L);
+        for (const [p, dp, lo, hi] of [[ax, dx, c.x0, c.x1], [az, dz, c.z0, c.z1]]) {
+          if (Math.abs(dp) < 1e-9) { if (p < lo || p > hi) t1 = -1; continue; }
+          let u = (lo - p) / dp, v = (hi - p) / dp; if (u > v) [u, v] = [v, u];
+          t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+        }
+        if (t1 > t0) iv.push([t0, t1]);
+      }
+      iv.sort((a, b) => a[0] - b[0]);
+      const merged = [];
+      for (const v of iv) { const last = merged[merged.length - 1]; if (last && v[0] <= last[1]) last[1] = Math.max(last[1], v[1]); else merged.push(v.slice()); }
+      for (const [a, b] of merged) {
+        if (a > 0) { put(ax + dx * a, az + dz * a, 1); put(ax + dx * a, az + dz * a, 0); }
+        put(ax + dx * b, az + dz * b, 0);
+        if (b < 1) put(ax + dx * b, az + dz * b, 1);
+      }
+      const endGap = merged.length && merged[merged.length - 1][1] >= 1;
+      put(bx, bz, endGap ? 0 : 1);
+      d0 += L;
+    }
+    PX.set(QX.subarray(0, m)); PZ.set(QZ.subarray(0, m)); PA.set(QA.subarray(0, m));
+    return m;
+  }
 
   function add(b){
     const color = lin(b.r.color);
@@ -172,7 +209,7 @@ export function createTrails(scene){
      covers them). deathWindow: seconds a dead rider's wall stays before its cells clear. */
   function update(b, wx, trim, deathWindow){
     const t = b.trail; if (!t) return;
-    let n = 0;
+    let n = 0, cut = false;
     const burst = !!b.wlist;
     if (burst) {
       if (!(n = burstLine(b))) { t.wall.visible = t.glow.visible = false; return; }
@@ -185,10 +222,11 @@ export function createTrails(scene){
       // Polyline: every segment start, then the head
       for (let i = 0; i < b.segs.length && n < MAX - 1; i++) { PX[n] = wx(b.segs[i].x0); PZ[n] = wx(b.segs[i].z0); n++; }
       PX[n] = b.pos.x; PZ[n] = b.pos.z; n++;
+      if (b.cuts && b.cuts.length) { n = cutLine(n, b.cuts); cut = true; }
     }
     // Trim from the head end
     let remain = trim;
-    while (n >= 2 && remain > 0 && !(burst && PA[n - 2] === 0)) {   // a burst trim stops at the gap before the live wall
+    while (n >= 2 && remain > 0 && !((burst || cut) && PA[n - 2] === 0)) {   // a burst trim stops at the gap before the live wall
       const dx = PX[n - 1] - PX[n - 2], dz = PZ[n - 1] - PZ[n - 2], len = Math.hypot(dx, dz);
       if (len <= remain) { remain -= len; n--; }
       else { const k = (len - remain) / len; PX[n - 1] = PX[n - 2] + dx * k; PZ[n - 1] = PZ[n - 2] + dz * k; remain = 0; }
@@ -199,12 +237,13 @@ export function createTrails(scene){
 
     const wp = t.wall.geometry.attributes.position.array, wd = t.wall.geometry.attributes.aDist.array;
     const gp = t.glow.geometry.attributes.position.array, gd = t.glow.geometry.attributes.aDist.array;
-    if (burst || t.aDirty) {
+    const useA = burst || cut;
+    if (useA || t.aDirty) {
       const wa = t.wall.geometry.attributes.aA, ga = t.glow.geometry.attributes.aA;
-      for (let i = 0; i < n; i++) wa.array[2 * i] = wa.array[2 * i + 1] = ga.array[2 * i] = ga.array[2 * i + 1] = burst ? PA[i] : 1;
-      if (!burst) { wa.array.fill(1); ga.array.fill(1); }
+      if (!useA) { wa.array.fill(1); ga.array.fill(1); }
+      else for (let i = 0; i < n; i++) wa.array[2 * i] = wa.array[2 * i + 1] = ga.array[2 * i] = ga.array[2 * i + 1] = PA[i];
       wa.needsUpdate = ga.needsUpdate = true;
-      t.aDirty = burst;
+      t.aDirty = useA;
     }
     const half = VC.trail.glowWidth / 2;
     for (let i = 0; i < n; i++) {

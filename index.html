@@ -92,6 +92,10 @@
     <div class="board" id="board"></div>
   </div>
   <div class="center"><div><div id="msg"></div><div id="sub"></div></div></div>
+  <div class="feed" id="feed" aria-live="polite"></div>
+  <div class="emotes" id="emoteBar" aria-label="Emotes">
+    <button class="hud-btn" data-em="0" aria-label="Emote GG">GG</button><button class="hud-btn" data-em="1" aria-label="Emote devil">😈</button><button class="hud-btn" data-em="2" aria-label="Emote scream">😱</button><button class="hud-btn" data-em="3" aria-label="Emote fire">🔥</button>
+  </div>
   <div class="bottom">
     <canvas id="radar" width="256" height="256" aria-label="Arena minimap"></canvas>
     <div class="gauge">
@@ -116,13 +120,20 @@
   <button id="tR" class="cut" aria-label="Turn right">▶</button>
 </div>
 
+<div class="emote-layer" id="emoteLayer" aria-hidden="true"></div>
 <div class="pausebox" id="pausebox" hidden>
   <div class="pausecard">
     <div class="big" id="pauseTitle">PAUSED</div>
     <div class="tag" id="pauseHint">Press P or tap Resume</div>
     <div class="pause-actions">
       <button class="ride cut" id="resumeBtn">RESUME</button>
+      <button class="ghost cut" id="rulesBtn">CHANGE RULES</button>
       <button class="ghost cut" id="quitBtn">QUIT MATCH</button>
+    </div>
+    <div class="pause-rules" id="pauseRules" hidden>
+      <div class="tag">New rules for a fresh match (everyone restarts)</div>
+      <div data-pause-slot></div>
+      <button class="ride cut" id="restartBtn">RESTART WITH THESE</button>
     </div>
   </div>
 </div>
@@ -361,6 +372,10 @@
       <div class="row" id="lapsRow" hidden>
         <div><div class="label">Laps</div><div class="hint" id="lapsHint">Main Stadium · first across the line wins</div></div>
         <div class="seg cut" id="lapsSeg"><button data-l="3">3</button><button data-l="5">5</button><button data-l="7">7</button></div>
+      </div>
+      <div class="row" id="pickRow">
+        <div><div class="label">Pickups</div><div class="hint">Speed surge · phase · wall breaker on the grid</div></div>
+        <div class="seg cut" id="pickSeg"><button data-p="on">On</button><button data-p="off">Off</button></div>
       </div>
       <div class="row" id="winRow">
         <div><div class="label">Rounds to win</div><div class="hint">First rider to this many takes the match</div></div>
