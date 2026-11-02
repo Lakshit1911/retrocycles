@@ -138,7 +138,7 @@ export function createPipeline({mount, scene, camera, quality, onAutoDrop}){
   }
 
   /* Frame-rate watchdog, two stages (session only):
-     1. Dynamic resolution: when the frame rate falls under ~88% of what this screen can show, the
+     1. Dynamic resolution: when the frame rate falls under ~94% of what this screen can show, the
         render resolution steps down (10% at a time, to VC.autoQuality.minScale); with steady headroom
         it climbs back. Sharpness gives way first, so motion stays smooth at the screen's own rate.
      2. Still under minFps for `seconds` at the lowest resolution: drop one quality level. */

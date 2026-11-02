@@ -488,12 +488,30 @@ async function hostStart(){
   });
 }
 $('startMatch').addEventListener('click', hostStart);
+/* Auto-update: while you sit in the menus (not in a grid or a race), check every couple of minutes
+   whether a newer build is deployed and reload into it, so everyone in a match runs the same code. */
+const VERSION_FILES = ['index.html', 'js/game.js', 'js/net.js', 'js/ui.js'];
+async function buildStamp(){
+  const tags = await Promise.all(VERSION_FILES.map(f => fetch(f, {method:'HEAD', cache:'no-store'})
+    .then(r => r.ok ? (r.headers.get('etag') || r.headers.get('last-modified') || '') : '').catch(() => '')));
+  return tags.every(t => t) ? tags.join('|') : '';
+}
+if (!/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && !window.phantomDesktop && !window.Capacitor) {
+  let stamp = '';
+  buildStamp().then(s => { stamp = s; });
+  setInterval(async () => {
+    if (!stamp || room || inMatch || document.hidden) return;
+    if (!['title', 'home', 'solo', 'board', 'profile', 'garage'].includes(screen)) return;
+    const now = await buildStamp();
+    if (now && now !== stamp && !room && !inMatch) { toast('Updating to the newest version…'); setTimeout(() => location.reload(), 900); }
+  }, 120000);
+}
 /* Link readout in the race HUD: DIRECT (peer to peer) with its round trip, or RELAY (through the database) */
 setInterval(() => {
   const el = $('netTag'); if (!el) return;
   if (!room || !inMatch) { el.hidden = true; return; }
   const i = room.linkInfo(); el.hidden = false;
-  el.textContent = i.p2p ? `Direct link · ${i.rtt ? i.rtt + ' ms' : '…'}` : i.total ? (i.up ? `Direct ${i.up}/${i.total} · relay for the rest` : 'Relay · linking…') : 'Relay';
+  el.textContent = i.p2p ? `Direct link · ${i.rtt ? i.rtt + ' ms' + (i.jit > 15 ? ` ±${i.jit}` : '') : '…'}` : i.total ? (i.up ? `Direct ${i.up}/${i.total} · relay for the rest` : 'Relay · linking…') : 'Relay';
   el.classList.toggle('on', i.p2p);
 }, 1000);
 async function leaveRoom(){

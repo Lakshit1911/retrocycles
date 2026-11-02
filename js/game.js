@@ -230,7 +230,9 @@ function placeBike(b, dt){
   b.visualSpeed = (moving ? BASE * b.mul / VC.vehicle.scale : 0) + VC.effects.powerOn.speed * (b.powerT / VC.effects.powerOn.duration);
   b.particleScale = pipe.particleScale;
   updatePose(b, dt, b.vpos, headingOf(b.dir), b.visualSpeed);
-  b.trim = VC.vehicle.originBehindHead + b.mesh.tail + lag;   // the wall appears to leave the craft's tail
+  // the wall appears to leave the craft's tail; a guest's view of another rider keeps the wall right up to
+  // its newest known point even while the craft is drawn a little behind it (never hide a live wall)
+  b.trim = VC.vehicle.originBehindHead + b.mesh.tail + (mode === 'guest' && b !== player ? Math.min(0, lag) : lag);
 }
 
 function turn(b, t){

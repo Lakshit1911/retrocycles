@@ -17,8 +17,10 @@
    using the room only for the handshake. Every message still goes through the database too; each side
    acts on whichever copy arrives first and drops the other (ids / sequence numbers), so a link that
    never opens (strict NAT) or drops mid-race just leaves the database route doing the work.
-   'ev' is reliable and ordered (turns, inputs, turn logs, wall points, pings); 'st' is unordered with
-   no retransmits (snapshots: a lost one is replaced by the next 50 ms later). */
+   'ev' is reliable and ordered; 'st' is unordered with no retransmits. Snapshots and pings go on 'st'
+   only. Turns, boosts, inputs and turn logs go on both: the 'st' copy is never held up behind a lost
+   packet (on 'ev' one loss stalls everything after it for a resend), and 'ev' guarantees arrival.
+   Turns are sent on 'st' twice, 20 ms apart. Duplicates are dropped by the receiver. */
 import { db, ref, child, get, set, update, remove, push, onValue, onChildAdded, onDisconnect, serverTimestamp } from './firebase.js';
 
 export const MAX = 6;
@@ -31,7 +33,7 @@ const sid = () => Math.random().toString(36).slice(2, 10);
 /* One direct link. host: true on the offering side. send(path, obj) / listen(path, cb) / listenAdded(path, cb)
    are the room's database helpers for the handshake. onMsg(msg) gets every message from either channel. */
 function openLink({host, sendSig, pushSig, onSig, onSigAdded, onMsg}){
-  const L = {pc:null, ev:null, st:null, open:false, rtt:0, id:sid(), off:[], closed:false};
+  const L = {pc:null, ev:null, st:null, open:false, rtt:0, jit:0, pings:[], id:sid(), off:[], closed:false};
   if (!hasRTC) return L;
   const pc = L.pc = new RTCPeerConnection({iceServers:ICE});
   const wire = ch => {
@@ -79,6 +81,14 @@ function send(L, ch, msg){
   if (!L || !L.open || !c || c.readyState !== 'open') return false;
   try { c.send(JSON.stringify(msg)); return true; } catch (e) { return false; }
 }
+// Round trip: the median of the last 10 pings (one late packet doesn't swing it), jitter = 90th percentile - median
+function pong(L, t){
+  L.pings.push(performance.now() - t); if (L.pings.length > 10) L.pings.shift();
+  const a = L.pings.slice().sort((x, y) => x - y);
+  L.rtt = a[a.length >> 1]; L.jit = Math.max(0, a[Math.min(a.length - 1, Math.floor(a.length * .9))] - L.rtt);
+}
+// Both channels: the unordered copy arrives first unless lost; the reliable one makes sure it arrives
+function both(L, msg){ const a = send(L, 'st', msg), b = send(L, 'ev', msg); return a || b; }
 function closeLink(L){
   if (!L) return;
   L.closed = true; L.open = false; L.off.forEach(f => f && f()); L.off = [];
@@ -98,7 +108,8 @@ export class Room {
   /* Link status for the HUD: {p2p, rtt (ms), up, total} */
   linkInfo(){
     const ls = [...this.links.values()], up = ls.filter(l => l.open);
-    return {p2p:ls.length > 0 && up.length === ls.length, up:up.length, total:ls.length, rtt:Math.round(up.length ? Math.max(...up.map(l => l.rtt)) : 0)};
+    return {p2p:ls.length > 0 && up.length === ls.length, up:up.length, total:ls.length,
+      rtt:Math.round(up.length ? Math.max(...up.map(l => l.rtt)) : 0), jit:Math.round(up.length ? Math.max(...up.map(l => l.jit)) : 0)};
   }
   get fast(){ const i = this.linkInfo(); return i.p2p; }
   sig(base){
@@ -176,7 +187,7 @@ export class Room {
   }
   logTurn(r, id, n, x, z){
     const key = `${r}_${id}_${n}`;
-    for (const L of this.links.values()) send(L, 'ev', {k:'tl', key, v:[x, z]});
+    for (const L of this.links.values()) both(L, {k:'tl', key, v:[x, z]});
     set(this.path(`tl/${key}`), [x, z]).catch(() => {});
   }
   logPoints(r, seq, pts){
@@ -202,12 +213,12 @@ export class Room {
         if (m.k === 't') turn(m.v);
         else if (m.k === 'b') boost(m.v);
         else if (m.k === 'f' && onInput) input(m.v);
-        else if (m.k === 'pi') send(link, 'ev', {k:'po', t:m.t});
-        else if (m.k === 'po') { const d = performance.now() - m.t; link.rtt = link.rtt ? link.rtt + (d - link.rtt) * .3 : d; }
+        else if (m.k === 'pi') send(link, 'st', {k:'po', t:m.t});
+        else if (m.k === 'po') pong(link, m.t);
       }});
       this.links.set(p.uid, L);
     });
-    const ping = setInterval(() => { for (const L of this.links.values()) send(L, 'ev', {k:'pi', t:performance.now()}); }, 1000);
+    const ping = setInterval(() => { for (const L of this.links.values()) send(L, 'st', {k:'pi', t:performance.now()}); }, 500);
     this.offMatch.push(() => clearInterval(ping));
   }
   endMatch(){ if (this.isHost) return update(this.ref, {status:'lobby'}).catch(() => {}); }
@@ -215,17 +226,17 @@ export class Room {
   /* ---- guest ---- */
   sendTurn(t, at, r){
     const v = {t, at, r, id:`${this.mySid}-${++this.turnN}`}, L = this.links.get('host');
-    send(L, 'ev', {k:'t', v});
+    both(L, {k:'t', v}); setTimeout(() => send(L, 'st', {k:'t', v}), 20);
     push(this.path(`in/${this.uid}/t`), v).catch(() => {});
   }
   sendBoost(b){
     const v = {v:!!b, n:++this.boostN};
-    send(this.links.get('host'), 'ev', {k:'b', v});
+    both(this.links.get('host'), {k:'b', v});
     set(this.path(`in/${this.uid}/b`), v).catch(() => {});
   }
   sendInputs(r, q, s){
     // on a direct link the database copy is only a fallback for a link that drops: still sent, but the host takes the first
-    send(this.links.get('host'), 'ev', {k:'f', v:{r, q, s}});
+    both(this.links.get('host'), {k:'f', v:{r, q, s}});
     push(this.path(`in/${this.uid}/f`), {r, q, s}).catch(() => {});
   }
   listenMatch(onState, onTurnPoint, onPoints){
@@ -245,12 +256,12 @@ export class Room {
       if (m.k === 'st') state(m.v);
       else if (m.k === 'tl') tl(m.key, m.v);
       else if (m.k === 'fp') fp(m.key, m.v);
-      else if (m.k === 'po') { const d = performance.now() - m.t; L.rtt = L.rtt ? L.rtt + (d - L.rtt) * .3 : d; }
-      else if (m.k === 'pi') send(L, 'ev', {k:'po', t:m.t});
+      else if (m.k === 'po') pong(L, m.t);
+      else if (m.k === 'pi') send(L, 'st', {k:'po', t:m.t});
     }});
     this.links.set('host', L);
     // ping over the link every second: the HUD shows the round trip
-    const ping = setInterval(() => send(L, 'ev', {k:'pi', t:performance.now()}), 1000);
+    const ping = setInterval(() => send(L, 'st', {k:'pi', t:performance.now()}), 500);
     this.offMatch.push(() => clearInterval(ping));
   }
 
