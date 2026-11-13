@@ -1,7 +1,7 @@
 {
-  "name": "phantom-run-mobile",
+  "name": "lightlock-mobile",
   "version": "0.1.0",
-  "description": "Phantom Run iPhone app: a Capacitor iOS shell around the same web game as the site and the desktop app.",
+  "description": "Lightlock iPhone app: a Capacitor iOS shell around the same web game as the site and the desktop app.",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",

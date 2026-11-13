@@ -1,13 +1,13 @@
 {
-  "name": "phantom-run-desktop",
-  "productName": "Phantom Run",
+  "name": "lightlock-desktop",
+  "productName": "Lightlock",
   "version": "0.1.0",
-  "description": "Phantom Run: an anti-gravity night race. Desktop (Electron) build for Steam.",
-  "author": "Phantom Run",
+  "description": "Lightlock by Lumul Studios: chess at 240 km/h. Desktop (Electron) build for Steam.",
+  "author": "Lumul Studios",
   "license": "UNLICENSED",
   "private": true,
   "main": "main.js",
-  "desktopName": "phantom-run.desktop",
+  "desktopName": "lightlock.desktop",
   "scripts": {
     "build-app": "node scripts/build-app.mjs",
     "start": "npm run build-app && electron .",
@@ -40,9 +40,9 @@
     "three": "0.128.0"
   },
   "build": {
-    "appId": "com.phantomrun.desktop",
-    "productName": "Phantom Run",
-    "copyright": "Copyright (c) Phantom Run",
+    "appId": "com.lumulstudios.lightlock",
+    "productName": "Lightlock",
+    "copyright": "Copyright (c) Lumul Studios",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -91,7 +91,7 @@
           ]
         }
       ],
-      "executableName": "PhantomRun",
+      "executableName": "Lightlock",
       "icon": "build/icon.png",
       "files": [
         "main.js",
@@ -109,7 +109,7 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "shortcutName": "Phantom Run",
+      "shortcutName": "Lightlock",
       "artifactName": "${productName}-${version}-setup.${ext}"
     },
     "portable": {
@@ -194,7 +194,7 @@
           ]
         }
       ],
-      "executableName": "phantom-run",
+      "executableName": "lightlock",
       "category": "Game",
       "icon": "build/icon.png",
       "synopsis": "Anti-gravity night race with walls of light",

@@ -1,4 +1,4 @@
-/* Phantom Run engine: scene, riders, simulation, audio, HUD and camera.
+/* Lightlock engine: scene, riders, simulation, audio, HUD and camera.
    One engine, three roles:
      solo  - simulates everything locally
      host  - simulates everything, streams snapshots + turn points to guests
@@ -40,6 +40,7 @@ import { pollGamepad } from './input/gamepad.js';            // game controllers
 const THREE = window.THREE;
 const $ = id => document.getElementById(id);
 const N = 128, H = N / 2, BASE = 15, DEATH_WINDOW = 1.4;
+const KMH = 240 / (BASE * 1.7);   // speedometer: full boost in the arena reads 240 km/h ("Chess at 240 km/h")
 const SNAP_DT = 1 / 20, REWIND = 6, GRACE = .2, HIST = 8;
 /* Guests (grid): b.lag = cells the drawn craft trails its logical head along its path. A snapshot's
    correction is eased out over ~1/LAG_EASE s instead of jumping (more than LAG_MAX cells snaps), and
@@ -1100,7 +1101,7 @@ function updateThreats(){
 function updateHud(dt){
   updateThreats();
   if (state === 'demo' || !player) return;
-  $('spd').textContent = Math.round((isFree() && fw ? fw.cfg.base : BASE) * player.mul * 11 * (player.alive && state !== 'countdown' && state !== 'wait' ? 1 : 0));
+  $('spd').textContent = Math.round((isFree() && fw ? fw.cfg.base : BASE) * player.mul * KMH * (player.alive && state !== 'countdown' && state !== 'wait' ? 1 : 0));
   if (isCircuit() && state !== 'wait') circuitHud(dt);
   $('nrg').style.width = (player.energy * 100).toFixed(1) + '%';
   $('slip').classList.toggle('on', player.alive && player.grind > 0);

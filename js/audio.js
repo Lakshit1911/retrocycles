@@ -1,4 +1,4 @@
-/* Phantom Run audio: an original score plus game sound effects, all synthesised with Web Audio.
+/* Lightlock audio: an original score plus game sound effects, all synthesised with Web Audio.
 
    Score: French-house synth engine inside a cinematic shell, D minor, 118 BPM.
      Synth side: galloping octave bass with a filter "wow", 16th-note arpeggios through a dotted

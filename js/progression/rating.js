@@ -1,4 +1,4 @@
-/* Glicko-2 skill rating (Glickman, "Example of the Glicko-2 system", 2013), plus the rules Phantom Run
+/* Glicko-2 skill rating (Glickman, "Example of the Glicko-2 system", 2013), plus the rules Lightlock
    uses to turn a multi-rider match into rated games. Pure: no DOM, no Firebase, runs in Node.
 
    Rating shape: {r, rd, vol} on the familiar 1500 scale. A stored rating also carries

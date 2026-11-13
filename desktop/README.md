@@ -1,4 +1,4 @@
-# Phantom Run desktop build (Electron + Steam)
+# Lightlock desktop build (Electron + Steam)
 
 The same game as the website, wrapped in Electron for Steam. Solo races work offline. Sign-in, online
 grids and leaderboards use the network exactly like the web version (Firebase is still loaded from
@@ -63,13 +63,13 @@ On your Mac (Apple Silicon or Intel, macOS 12 or newer):
    ```
 
 3. Results in `desktop/dist/`:
-   - `Phantom Run-0.1.0-mac.dmg`: open it and drag Phantom Run into Applications
-   - `Phantom Run-0.1.0-mac.zip`: the same app zipped (for itch.io / direct downloads)
-   - `mac-universal/Phantom Run.app`: the unpacked app (this is what goes into a Steam macOS depot)
+   - `Lightlock-0.1.0-mac.dmg`: open it and drag Lightlock into Applications
+   - `Lightlock-0.1.0-mac.zip`: the same app zipped (for itch.io / direct downloads)
+   - `mac-universal/Lightlock.app`: the unpacked app (this is what goes into a Steam macOS depot)
 
    `npm run dist:mac:dir` builds only the `.app` (faster, for local testing).
 
-**The macOS app.** Native menu bar (Phantom Run > About / Hide / Quit ⌘Q, Edit, View > Toggle Full Screen ⌃⌘F,
+**The macOS app.** Native menu bar (Lightlock > About / Hide / Quit ⌘Q, Edit, View > Toggle Full Screen ⌃⌘F,
 Window), a hidden-inset title bar: the traffic lights float over the game, a 30 px strip along the top drags
 the window (double-click zooms), and the HUD and menus start below that strip so it never swallows a click;
 in fullscreen the strip is gone. Quality defaults to **High** on a Mac (pointer is not coarse), with the
@@ -83,8 +83,8 @@ with `npm run icons` (no extra tools needed).
 yourself on the same Mac usually opens directly. A copy that was downloaded (AirDrop, browser, Steam) is
 quarantined and macOS says it "cannot be opened" or "is damaged":
 - macOS 15 Sequoia and newer: try to open it once, then System Settings > Privacy & Security > scroll to
-  "Phantom Run was blocked" > **Open Anyway** (right-click > Open no longer bypasses the check).
-- or remove the quarantine flag: `xattr -dr com.apple.quarantine "/Applications/Phantom Run.app"`.
+  "Lightlock was blocked" > **Open Anyway** (right-click > Open no longer bypasses the check).
+- or remove the quarantine flag: `xattr -dr com.apple.quarantine "/Applications/Lightlock.app"`.
 - If it still will not start on Apple Silicon, build with an ad-hoc signature:
   `npm run build-app && npx electron-builder --mac --universal -c.mac.identity=-`.
 
@@ -97,8 +97,8 @@ certificate (it lands in your login keychain). electron-builder finds it and sig
 # app-specific password from appleid.apple.com > Sign-In and Security > App-Specific Passwords
 export APPLE_ID="you@example.com" APPLE_APP_SPECIFIC_PASSWORD="abcd-efgh-ijkl-mnop" APPLE_TEAM_ID="ABCDE12345"
 npm run dist:mac -- -c.mac.notarize=true      # or set "notarize": true under build.mac in package.json
-spctl -a -vvv -t install "dist/mac-universal/Phantom Run.app"   # should say: accepted, source=Notarized Developer ID
-xcrun stapler validate "dist/Phantom Run-0.1.0-mac.dmg"
+spctl -a -vvv -t install "dist/mac-universal/Lightlock.app"   # should say: accepted, source=Notarized Developer ID
+xcrun stapler validate "dist/Lightlock-0.1.0-mac.dmg"
 ```
 
 The hardened runtime entitlements in `build/entitlements.mac.plist` (JIT for V8 / WebGL, Steam overlay
@@ -108,13 +108,13 @@ injection) are already set up for this.
 
 ```bash
 npm run dist:win      # dist/win-unpacked/ + NSIS installer + portable .exe   (build on Windows, or Linux with wine)
-npm run dist:mac      # dist/mac-universal/Phantom Run.app + .dmg + .zip     (build on a Mac, universal arm64 + x64)
+npm run dist:mac      # dist/mac-universal/Lightlock.app + .dmg + .zip     (build on a Mac, universal arm64 + x64)
 npm run dist:linux    # dist/linux-unpacked/ + .AppImage
 npm run pack          # unpacked folder for the current OS only
 ```
 
 Steam does not use installers: SteamPipe uploads the **unpacked folders** (`win-unpacked`,
-`mac-universal/Phantom Run.app`, `linux-unpacked`). The installers, portable exe, dmg and AppImage are for
+`mac-universal/Lightlock.app`, `linux-unpacked`). The installers, portable exe, dmg and AppImage are for
 itch.io / direct downloads.
 
 steamworks.js ships prebuilt native binaries. They are unpacked from the asar
@@ -257,9 +257,9 @@ Optional desktop touches for the integrator (all guarded by `window.phantomDeskt
 5. **Depots**: Edit Steamworks Settings > SteamPipe > Depots. Create one depot per OS (Windows 64-bit, macOS, Linux +
    SteamOS) and publish.
 6. **Launch options** (Edit Steamworks Settings > Installation > General Installation):
-   - Windows: `PhantomRun.exe`, OS Windows, 64-bit.
-   - macOS: `Phantom Run.app`, OS macOS.
-   - Linux: `phantom-run`, OS Linux + SteamOS. If the game does not start inside the Steam Linux Runtime
+   - Windows: `Lightlock.exe`, OS Windows, 64-bit.
+   - macOS: `Lightlock.app`, OS macOS.
+   - Linux: `lightlock`, OS Linux + SteamOS. If the game does not start inside the Steam Linux Runtime
      (Chromium sandbox: "SUID sandbox helper binary ... not configured correctly"), add `--no-sandbox` as
      the launch argument. A Steam install does not give `chrome-sandbox` the setuid bit it would need.
 7. **Achievements**: Edit Steamworks Settings > Stats & Achievements. Create every entry in `achievements.json` with
@@ -307,5 +307,5 @@ xvfb-run -a npx electron . --smoke-test --offline --no-steam --no-sandbox \
 ```
 
 `--offline` blocks every request outside the local server, which shows solo works without network.
-The same flags work on a packaged binary (`dist/linux-unpacked/phantom-run --smoke-test ...`).
+The same flags work on a packaged binary (`dist/linux-unpacked/lightlock --smoke-test ...`).
 `test:browser` uses Playwright from `node_modules` or the global install (`npm root -g`).

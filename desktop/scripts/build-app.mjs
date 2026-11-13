@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Builds desktop/app/: an offline-capable copy of the Phantom Run site for the Electron shell.
+/* Builds desktop/app/: an offline-capable copy of the Lightlock site for the Electron shell.
 
    Thin wrapper around the shared bundler in tools/web-bundle.mjs (also used by the iPhone app in
    mobile/): it copies the site, vendors three.js r128 and the fonts from desktop/node_modules, points

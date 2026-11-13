@@ -1,6 +1,6 @@
 {
-  "appId": "app.phantomrun.game",
-  "appName": "Phantom Run",
+  "appId": "com.lumulstudios.lightlock",
+  "appName": "Lightlock",
   "webDir": "www",
   "backgroundColor": "#040508",
   "loggingBehavior": "debug",

@@ -1,6 +1,6 @@
-# Phantom Run
+# Lightlock
 
-An anti-gravity night race in the browser: every rider leaves a wall of light behind it. Race AI rivals solo, or host an online grid and share a 5-character code with friends (up to 6 riders, empty seats filled with AI if you like). Works with keyboard (remappable), touch (buttons or swipe) or a game controller, in the browser, as an installable web app (iPhone home screen, offline solo), as a Mac / Windows / Linux app (Electron, Steam-ready) and as an iPhone app (Capacitor).
+**Chess at 240 km/h. Meet you on the Grid.** A Lumul Studios game: every rider leaves a wall of light behind it, and you win by boxing your rivals in. Race AI rivals solo, or host an online grid and share a 5-character code with friends (up to 6 riders, empty seats filled with AI if you like). Works with keyboard (remappable), touch (buttons or swipe) or a game controller, in the browser, as an installable web app (iPhone home screen, offline solo), as a Mac / Windows / Linux app (Electron, Steam-ready) and as an iPhone app (Capacitor).
 
 Static site: no build step. Three.js r128 and the Firebase JS SDK load from CDNs.
 

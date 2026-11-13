@@ -98,7 +98,7 @@ async function pwa(browser){
   const { srv, base } = await serve();
   // Manifest, icons and headers as served
   const man = await (await fetch(base + 'manifest.webmanifest')).json();
-  check('manifest: name, display fullscreen, orientation any, theme', man.name === 'Phantom Run' && man.display === 'fullscreen' && man.orientation === 'any' && man.theme_color === '#040508');
+  check('manifest: name, display fullscreen, orientation any, theme', man.name === 'Lightlock' && man.display === 'fullscreen' && man.orientation === 'any' && man.theme_color === '#040508');
   let iconsOk = true;
   for (const i of man.icons) { const r = await fetch(new URL(i.src, base)); iconsOk = iconsOk && r.ok && r.headers.get('content-type') === 'image/png'; }
   check('manifest icons served', iconsOk, man.icons.map(i => i.sizes + (i.purpose === 'maskable' ? ' maskable' : '')).join(', '));
@@ -116,7 +116,7 @@ async function pwa(browser){
     for (const n of names) for (const r of await (await caches.open(n)).keys()) keys.push(r.url);
     return {active:!!(reg && reg.active), scope:reg && reg.scope, controlled:!!navigator.serviceWorker.controller, names, keys};
   });
-  check('service worker installed and caching (?sw=1 on localhost)', ready && sw.active && sw.names.some(n => /^phantom-run-v/.test(n)), `${sw.keys.length} cached, caches ${sw.names.join(',')}`);
+  check('service worker installed and caching (?sw=1 on localhost)', ready && sw.active && sw.names.some(n => /^lightlock-v/.test(n)), `${sw.keys.length} cached, caches ${sw.names.join(',')}`);
   const has = p => sw.keys.some(k => k.endsWith(p));
   check('app shell + module graph cached', has('/') && has('/js/game.js') && has('/js/ui.js') && has('/js/input/gamepad.js') && has('/js/visuals/renderer.js') && has('/css/style.css') && sw.keys.some(k => k.includes('three.min.js')));
   // (js/firebase.js is the game's own module and may be cached; the Firebase SDK and APIs it loads may not)

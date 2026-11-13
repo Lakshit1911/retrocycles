@@ -1,4 +1,4 @@
-/* Phantom Run desktop shell (Electron main process).
+/* Lightlock desktop shell (Electron main process).
 
    - serves the bundled game (desktop/app, built by `npm run build-app`) from http://localhost:<port>
    - one 16:9 window (1600x900 by default) that remembers its size, position and fullscreen state
@@ -86,7 +86,7 @@ function start(){
 
 async function ready(){
   // Google refuses sign-in from user agents that look like embedded browsers; drop the Electron token
-  app.userAgentFallback = app.userAgentFallback.replace(/\s(?:Electron|phantom-run-desktop|Phantom Run)\/\S+/gi, '');
+  app.userAgentFallback = app.userAgentFallback.replace(/\s(?:Electron|lightlock-desktop|phantom-run-desktop|Lightlock)\/\S+/gi, '');
   setupMenu();
   setupPermissions();
 
@@ -120,7 +120,7 @@ function createWindow(saved, stateFile){
     minWidth: MIN.width, minHeight: MIN.height,
     show: false,
     backgroundColor: BG,
-    title: 'Phantom Run',
+    title: 'Lightlock',
     autoHideMenuBar: true,
     fullscreenable: true,
     titleBarStyle: TITLE_BAR,
@@ -186,9 +186,9 @@ function createWindow(saved, stateFile){
 
 function setupMenu(){
   // macOS needs a menu for Cmd+Q and copy/paste in the sign-in fields; it lives in the system menu bar
-  const template = menuTemplate({platform:process.platform, appName:app.name || 'Phantom Run', debug:DEBUG});
+  const template = menuTemplate({platform:process.platform, appName:app.name || 'Lightlock', debug:DEBUG});
   Menu.setApplicationMenu(template ? Menu.buildFromTemplate(template) : null);
-  if (MAC) app.setAboutPanelOptions(aboutOptions({appName:app.name || 'Phantom Run', version:app.getVersion(), electron:process.versions.electron}));
+  if (MAC) app.setAboutPanelOptions(aboutOptions({appName:app.name || 'Lightlock', version:app.getVersion(), electron:process.versions.electron}));
 }
 
 function setupPermissions(){

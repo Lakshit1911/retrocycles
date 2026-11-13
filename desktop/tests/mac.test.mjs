@@ -19,14 +19,14 @@ test('Windows / Linux: no application menu', () => {
 });
 
 test('macOS app menu: About, Hide, Quit with the standard shortcuts', () => {
-  const t = menuTemplate({platform:'darwin', appName:'Phantom Run'});
-  assert.equal(t[0].label, 'Phantom Run');
+  const t = menuTemplate({platform:'darwin', appName:'Lightlock'});
+  assert.equal(t[0].label, 'Lightlock');
   const app = t[0].submenu.filter(i => i.role);
   assert.deepEqual(app.map(i => i.role), ['about', 'hide', 'hideOthers', 'unhide', 'quit']);
-  assert.equal(app[0].label, 'About Phantom Run');
+  assert.equal(app[0].label, 'About Lightlock');
   assert.equal(app.find(i => i.role === 'hide').accelerator, 'Command+H');
   const quit = app.find(i => i.role === 'quit');
-  assert.equal(quit.label, 'Quit Phantom Run');
+  assert.equal(quit.label, 'Quit Lightlock');
   assert.equal(quit.accelerator, 'Command+Q');
 });
 
@@ -45,8 +45,8 @@ test('macOS: Edit, View > Toggle Full Screen (Ctrl+Cmd+F), Window', () => {
 });
 
 test('About panel text', () => {
-  const a = aboutOptions({appName:'Phantom Run', version:'1.2.3', electron:'45.2.0'});
-  assert.equal(a.applicationName, 'Phantom Run');
+  const a = aboutOptions({appName:'Lightlock', version:'1.2.3', electron:'45.2.0'});
+  assert.equal(a.applicationName, 'Lightlock');
   assert.equal(a.applicationVersion, '1.2.3');
   assert.match(a.version, /Electron 45/);
 });
@@ -97,7 +97,7 @@ test('main.js uses the hidden-inset title bar on macOS only and the menu module'
 
 test('ProMotion: the frame-rate watchdog only enforces a minimum fps', () => {
   const r = fs.readFileSync(path.join(REPO, 'js', 'visuals', 'renderer.js'), 'utf8');
-  assert.match(r, /fps < VC\.autoQuality\.minFps/);
+  assert.match(r, /fps < (VC\.autoQuality|AQ)\.minFps/);
   assert.doesNotMatch(r, /fps > |maxFps/);
   const main = fs.readFileSync(path.join(DESKTOP, 'main.js'), 'utf8');
   assert.doesNotMatch(main, /disable-frame-rate-limit|setFrameRate/);   // Electron follows the display (120 Hz on ProMotion)

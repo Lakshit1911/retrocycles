@@ -1,0 +1,48 @@
+# Windows build of the Lightlock desktop app (Electron), on a real Windows runner.
+# Every push to main or integration (or a manual run from the Actions tab) builds the installer, the portable
+# .exe and a zip, launches the packaged game once in smoke-test mode (title -> solo race, no Steam), and
+# attaches the files to the run as a downloadable artifact.
+name: Windows build
+
+on:
+  push:
+    branches: [main, integration]
+    paths: ['index.html', 'css/**', 'js/**', 'desktop/**', 'tools/**', 'manifest.webmanifest', 'sw.js', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Build installer, portable exe and unpacked app
+        run: npm run build-app && npx electron-builder --win --x64 --publish never
+      - name: Smoke test the packaged game (software WebGL, no Steam)
+        shell: pwsh
+        run: |
+          $out = & ".\dist\win-unpacked\Lightlock.exe" --smoke-test --no-steam --use-angle=swiftshader --enable-unsafe-swiftshader 2>&1 | Out-String
+          $line = ($out -split "`n") | Where-Object { $_ -match 'SMOKE_RESULT' } | Select-Object -First 1
+          Write-Host $line
+          if (-not $line -or $line -notmatch '"ok":true') { Write-Host $out; exit 1 }
+      - name: Zip the unpacked app
+        shell: pwsh
+        run: Compress-Archive -Path dist\win-unpacked\* -DestinationPath dist\Lightlock-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lightlock-windows
+          path: |
+            desktop/dist/*-setup.exe
+            desktop/dist/*-portable.exe
+            desktop/dist/Lightlock-win-x64.zip
+          retention-days: 30

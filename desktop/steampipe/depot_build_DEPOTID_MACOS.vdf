@@ -1,5 +1,5 @@
 // macOS depot (universal: Intel + Apple Silicon). Copy to depot_build_<depot id>.vdf.
-// Steam launch option: executable "Phantom Run.app", OS macOS.
+// Steam launch option: executable "Lightlock.app", OS macOS.
 // Upload a signed + notarized build (see desktop/README.md), or Gatekeeper blocks the game.
 "DepotBuild"
 {
@@ -7,8 +7,8 @@
 	"ContentRoot"	"../dist/mac-universal/"
 	"FileMapping"
 	{
-		"LocalPath"	"Phantom Run.app/*"
-		"DepotPath"	"Phantom Run.app/"
+		"LocalPath"	"Lightlock.app/*"
+		"DepotPath"	"Lightlock.app/"
 		"Recursive"	"1"
 	}
 }

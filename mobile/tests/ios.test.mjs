@@ -21,8 +21,8 @@ after(() => fs.rmSync(tmp, {recursive:true, force:true}));
 
 test('capacitor.config.json', () => {
   assert.match(config.appId, /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/);
-  assert.equal(config.appId, 'app.phantomrun.game');
-  assert.equal(config.appName, 'Phantom Run');
+  assert.equal(config.appId, 'com.lumulstudios.lightlock');
+  assert.equal(config.appName, 'Lightlock');
   assert.equal(config.webDir, 'www');
   assert.equal(config.ios.contentInset, 'never');   // the page handles the notch with env(safe-area-inset-*)
   assert.equal(config.ios.scrollEnabled, false);    // no rubber-banding of the whole web view
@@ -75,7 +75,7 @@ test('cap add ios + patch: Info.plist, icon and splash; idempotent; survives cap
   assert.equal(info.CADisableMinimumFrameDurationOnPhone, true);
   assert.equal(info.GCSupportsControllerUserInteraction, true);
   assert.deepEqual(info.UISupportedInterfaceOrientations, ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight']);
-  assert.equal(info.CFBundleDisplayName, 'Phantom Run');
+  assert.equal(info.CFBundleDisplayName, 'Lightlock');
   assert.ok(info.UIApplicationSceneManifest, 'template keys are kept');
   for (const [k, v] of Object.entries(INFO_PLIST)) assert.deepEqual(info[k], v, k);
   // Icon: 1024 px without alpha (App Store rule); splash replaced

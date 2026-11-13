@@ -1,4 +1,4 @@
-/* Installable web app: registers the service worker (sw.js) so Phantom Run starts and races solo offline,
+/* Installable web app: registers the service worker (sw.js) so Lightlock starts and races solo offline,
    for example from the iPhone home screen (Safari > Share > Add to Home Screen).
 
    Registered only on a real deployment: never inside the desktop (Electron) or iOS (Capacitor) apps,

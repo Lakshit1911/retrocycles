@@ -101,7 +101,7 @@ function route(){
 }
 
 /* ---------- Title screen ---------- */
-const BOOT = ['PHANTOM OS 3.0 // night circuit division', 'mounting phantom bay ............ ', 'calibrating light wall emitters .. ', 'linking to the online grid ...... '];
+const BOOT = ['LUMUL OS 4.0 // lightlock grid division', 'mounting craft bay .............. ', 'calibrating light wall emitters .. ', 'linking to the online grid ...... '];
 async function boot(){
   const el = $('bootLog');
   const status = async i => i < BOOT.length - 1 ? 'OK' : ((await online) ? 'ONLINE' : 'OFFLINE');
@@ -552,9 +552,9 @@ $('leaveRoom').addEventListener('click', async () => { await leaveRoom(); show('
 $('shareBtn').addEventListener('click', async () => {
   if (!room) return;
   const url = `${location.origin}${location.pathname}?join=${room.code}`;
-  const text = `Race me on Phantom Run. Grid code: ${room.code}`;
+  const text = `Meet you on the Grid. Race me on Lightlock, code ${room.code}`;
   try {
-    if (navigator.share) await navigator.share({title:'Phantom Run', text, url});
+    if (navigator.share) await navigator.share({title:'Lightlock', text, url});
     else { await navigator.clipboard.writeText(`${text}\n${url}`); toast('Code and link copied'); }
   } catch (e) { if (e.name !== 'AbortError') toast(`Grid code: ${room.code}`); }
 });

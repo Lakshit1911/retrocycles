@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Phantom Run",
-  "short_name": "Phantom Run",
+  "name": "Lightlock",
+  "short_name": "Lightlock",
   "description": "An anti-gravity night race. Race AI rivals or host an online grid with a 5-character code.",
   "lang": "en",
   "start_url": "./",

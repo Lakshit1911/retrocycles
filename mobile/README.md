@@ -1,4 +1,4 @@
-# Phantom Run for iPhone (Capacitor)
+# Lightlock for iPhone (Capacitor)
 
 The same game as the website and the Mac app, in a native iOS shell. [Capacitor](https://capacitorjs.com)
 8 wraps the web bundle in a WKWebView; the bundle is built by the same script as the desktop app
@@ -8,7 +8,7 @@ Sign-in, online grids and leaderboards use Firebase over the network, like every
 ```
 mobile/
   package.json           Capacitor 8 (core, ios, cli), haptics + keep-awake plugins, three + fonts for the bundle
-  capacitor.config.json  app id app.phantomrun.game, webDir www/, full-screen web view, no bounce
+  capacitor.config.json  app id com.lumulstudios.lightlock, webDir www/, full-screen web view, no bounce
   scripts/build-web.mjs  www/ from the repo (shared bundler, target "ios")
   scripts/ios.mjs        `cap add ios` / `cap sync ios`, then patches Info.plist, the app icon and the launch screen
   tests/ios.test.mjs     config, bundle, generated Xcode project + patches, native bridge mapping (no Xcode needed)
@@ -35,7 +35,7 @@ npm run ios:open     # opens ios/App/App.xcodeproj in Xcode
 
 In Xcode:
 1. Select the **App** target > **Signing & Capabilities** > Team: your Apple ID / team
-   (Xcode > Settings > Accounts to add it). Change the bundle identifier if `app.phantomrun.game` is taken.
+   (Xcode > Settings > Accounts to add it). Change the bundle identifier if `com.lumulstudios.lightlock` is taken.
 2. Plug in the iPhone (or pick it over Wi-Fi), choose it as the run destination, press **Run** (⌘R).
    The first time: on the iPhone, Settings > General > VPN & Device Management > trust your developer
    certificate, and turn on Settings > Privacy & Security > **Developer Mode**.

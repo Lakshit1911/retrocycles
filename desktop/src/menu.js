@@ -1,7 +1,7 @@
 /* Application menu templates (pure data, so tests can check them without Electron).
 
    macOS: the standard app menu in the system menu bar:
-     Phantom Run  About Phantom Run · Hide ⌘H · Hide Others ⌥⌘H · Show All · Quit Phantom Run ⌘Q
+     Lightlock  About Lightlock · Hide ⌘H · Hide Others ⌥⌘H · Show All · Quit Lightlock ⌘Q
      Edit         undo / cut / copy / paste / select all (needed in the sign-in fields)
      View         Toggle Full Screen ⌃⌘F (+ Reload / DevTools in development)
      Window       Minimize ⌘M · Zoom · Bring All to Front
@@ -11,7 +11,7 @@
 const FULLSCREEN_MAC = 'Control+Command+F';
 
 /** @returns {Array|null} an Electron MenuItem template, or null for "no application menu" */
-function menuTemplate({platform = process.platform, appName = 'Phantom Run', debug = false} = {}){
+function menuTemplate({platform = process.platform, appName = 'Lightlock', debug = false} = {}){
   if (platform !== 'darwin') return null;
   return [
     {label:appName, submenu:[
@@ -33,12 +33,12 @@ function menuTemplate({platform = process.platform, appName = 'Phantom Run', deb
 }
 
 /** Text for the macOS About panel (app.setAboutPanelOptions). */
-function aboutOptions({appName = 'Phantom Run', version = '0.0.0', electron = ''} = {}){
+function aboutOptions({appName = 'Lightlock', version = '0.0.0', electron = ''} = {}){
   return {
     applicationName: appName,
     applicationVersion: version,
     version: electron ? `Electron ${electron}` : '',
-    copyright: 'Copyright (c) Phantom Run',
+    copyright: 'Copyright (c) Lumul Studios',
     credits: 'An anti-gravity night race. three.js (MIT) · Michroma and IBM Plex Mono (SIL OFL 1.1)'
   };
 }

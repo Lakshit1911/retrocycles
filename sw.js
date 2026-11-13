@@ -1,4 +1,4 @@
-/* Phantom Run service worker: lets the installed web app (and the site) start and race solo offline.
+/* Lightlock service worker: lets the installed web app (and the site) start and race solo offline.
 
    - index.html (navigations): network first, cached copy when offline, so a deploy shows up at once
    - the game's own files (js/, css/, icons, manifest): network first, refreshed in the cache on every
@@ -10,7 +10,8 @@
    Bump VERSION when the caching rules change; old caches are deleted on activation.
    Registered by js/pwa.js (production only; on localhost only with ?sw=1). */
 const VERSION = '1';
-const PREFIX = 'phantom-run-';
+const PREFIX = 'lightlock-';
+const OLD_PREFIXES = ['phantom-run-'];   // caches from before the rename are cleared too
 const CACHE = `${PREFIX}v${VERSION}`;
 const SHELL = ['./', 'index.html', 'css/style.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'icons/apple-touch-icon.png', 'js/ui.js', 'js/game.js'];
@@ -48,7 +49,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k.startsWith(PREFIX) && k !== CACHE) await caches.delete(k);
+    for (const k of await caches.keys()) if ((k.startsWith(PREFIX) && k !== CACHE) || OLD_PREFIXES.some(p => k.startsWith(p))) await caches.delete(k);
     await self.clients.claim();
   })());
 });

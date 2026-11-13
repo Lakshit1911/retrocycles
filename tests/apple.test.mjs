@@ -109,7 +109,7 @@ await test('no pads in Node: poll releases everything and never throws', () => {
 console.log('web app');
 await test('manifest', () => {
   const m = JSON.parse(fs.readFileSync(path.join(REPO, 'manifest.webmanifest'), 'utf8'));
-  assert.equal(m.name, 'Phantom Run');
+  assert.equal(m.name, 'Lightlock');
   assert.equal(m.display, 'fullscreen');
   assert.equal(m.orientation, 'any');
   assert.equal(m.theme_color, '#040508');
@@ -160,7 +160,7 @@ await test('service worker: the game, three.js and fonts are cached', () => {
   for (const u of ['https://phantom.example/', 'https://phantom.example/js/game.js', 'https://phantom.example/icons/icon-512.png',
     'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://fonts.googleapis.com/css2?family=Michroma',
     'https://fonts.gstatic.com/s/michroma/v19/x.woff2']) assert.equal(bypass(u), false, u);
-  assert.match(sandbox.self.__CACHE, /^phantom-run-v\d+/);
+  assert.match(sandbox.self.__CACHE, /^lightlock-v\d+/);
   for (const t of ['install', 'activate', 'fetch', 'message']) assert.equal(typeof listeners[t], 'function', t);
 });
 await test('vercel.json: sw.js no-cache + Service-Worker-Allowed, auth rewrite kept', () => {

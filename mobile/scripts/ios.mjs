@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* iOS project setup for Phantom Run (Capacitor). Run through npm:
+/* iOS project setup for Lightlock (Capacitor). Run through npm:
 
      npm run ios:add     build www/, `cap add ios` if ios/ does not exist yet, then patch it
      npm run ios:sync    build www/, `cap sync ios` (copies www/ + updates plugins), then patch again
@@ -38,7 +38,7 @@ export const INFO_PLIST = {
   UIRequiredDeviceCapabilities: ['arm64']
 };
 
-/** Returns a copy of an Info.plist object with Phantom Run's settings applied (pure). */
+/** Returns a copy of an Info.plist object with Lightlock's settings applied (pure). */
 export function patchInfo(info){
   return {...info, ...JSON.parse(JSON.stringify(INFO_PLIST))};
 }

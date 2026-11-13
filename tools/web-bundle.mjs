@@ -54,6 +54,16 @@ export function parseFamilies(href){
   });
 }
 
+/* The website's speed hints (preconnects, remote modulepreloads, the no-JS fonts fallback) mean nothing in a
+   bundled app, where everything is local; drop them so the "nothing remote" check stays strict for real loads.
+   Local modulepreloads stay: they still let the app fetch its module graph in one go. */
+export function stripRemoteHints(html){
+  return html
+    .replace(/[ \t]*<link\b[^>]*\brel="(?:preconnect|dns-prefetch)"[^>]*>[ \t]*\r?\n?/gi, '')
+    .replace(/[ \t]*<link\b[^>]*\brel="modulepreload"[^>]*\bhref="https?:\/\/[^"]*"[^>]*>[ \t]*\r?\n?/gi, '')
+    .replace(/[ \t]*<noscript>\s*<link\b[^>]*\bhref="https:\/\/fonts\.googleapis\.com[^"]*"[^>]*>\s*<\/noscript>[ \t]*\r?\n?/gi, '');
+}
+
 // index.html must not load anything from the network any more
 export function remoteResources(html){
   return [...html.matchAll(/<(?:script|link|img|source|iframe)\b[^>]*\b(?:src|href)="(https?:\/\/[^"]+)"/gi)].map(m => m[1]);
@@ -171,6 +181,7 @@ export async function buildBundle({ out, deps, target = 'desktop', quiet = false
   let html = await fs.readFile(path.join(OUT, 'index.html'), 'utf8');
   const three = await vendorThree(html); html = three.html;
   const fonts = await vendorFonts(html); html = fonts.html;
+  html = stripRemoteHints(html);
   html = await injectPlatform(html);
   const remote = remoteResources(html);
   if (remote.length) fail(`index.html still loads remote resources: ${remote.join(', ')}`);
