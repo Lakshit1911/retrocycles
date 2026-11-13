@@ -69,8 +69,10 @@ test('cannot escape the root', async () => {
     assert.notEqual(r.status, 200, p);
     assert.doesNotMatch(r.body, /nope/, p);
   }
-  assert.equal(resolveFile('/srv/app', '/../etc/passwd'), '/srv/app/etc/passwd');   // clamped inside root
-  assert.equal(resolveFile('/srv/app', '/a/b/'), '/srv/app/a/b/index.html');
+  const root = path.resolve('/srv/app');   // the server always passes a resolved root (C:\srv\app on Windows)
+  assert.equal(resolveFile(root, '/../etc/passwd'), path.join(root, 'etc', 'passwd'));   // clamped inside root
+  assert.equal(resolveFile(root, '/a/b/'), path.join(root, 'a', 'b', 'index.html'));
+  assert.equal(resolveFile(root, '/..\\..\\windows\\win.ini'), path.join(root, 'windows', 'win.ini'));   // backslashes clamped too
 });
 
 test('rejects foreign Host headers (DNS rebinding) and non-GET methods', async () => {
