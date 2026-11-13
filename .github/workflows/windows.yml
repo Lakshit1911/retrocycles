@@ -25,7 +25,18 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
-      - run: npm test
+      - name: Unit tests (failures show up as annotations on the run)
+        id: tests
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          node --test --test-reporter=spec "tests/*.test.mjs" *>&1 | Tee-Object -FilePath test-out.txt
+          $code = $LASTEXITCODE
+          if ($code -ne 0) {
+            Get-Content test-out.txt | Where-Object { $_ -match '✖|Error|expected|actual|AssertionError|Cannot|ENOENT|EPERM|EACCES' } |
+              Select-Object -First 40 | ForEach-Object { Write-Host "::error::$($_.Trim())" }
+            exit 1
+          }
       - name: Build installer, portable exe and unpacked app
         run: npm run build-app && npx electron-builder --win --x64 --publish never
       - name: Smoke test the packaged game (software WebGL, no Steam)
@@ -39,6 +50,7 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path dist\win-unpacked\* -DestinationPath dist\Lightlock-win-x64.zip
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Lightlock-windows
           path: |
@@ -46,3 +58,7 @@ jobs:
             desktop/dist/*-portable.exe
             desktop/dist/Lightlock-win-x64.zip
           retention-days: 30
+          if-no-files-found: warn
+      - name: Fail the run if the unit tests failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
